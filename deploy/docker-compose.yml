@@ -73,6 +73,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       POSTGREST_API_KEY: ${POSTGREST_API_KEY:-}
       PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+      # Domain used for staging/preview URLs (e.g. myproject.<PUBLISHER_HOST>).
+      # Set to your own wildcard-DNS domain; defaults to wstd.work (cloud-only).
+      PUBLISHER_HOST: ${PUBLISHER_HOST:-wstd.work}
       FEATURES: ${FEATURES:-*}
       USER_PLAN: ${USER_PLAN:-pro}
       MAX_ASSETS_PER_PROJECT: ${MAX_ASSETS_PER_PROJECT:-50}
