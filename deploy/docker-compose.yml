@@ -85,6 +85,42 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/webstudio
       DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/webstudio
 
+  # ── Nginx reverse proxy + static file server ────────────────────────────────
+  # Serves published projects from /var/publish/<domain>/ and proxies
+  # everything else to the builder app.
+  # Expose port 80 (and optionally 443 with a TLS terminator in front).
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - published-sites:/var/publish:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Self-hosted publisher ─────────────────────────────────────────────────
+  # Optional service that automatically generates static HTML when you click
+  # "Publish" in the builder. Requires SELF_HOSTED_PUBLISHER_URL to be set in
+  # the app service environment (see below).
+  # Build the image: docker build -t webstudio-publisher ./publisher
+  # publisher:
+  #   image: webstudio-publisher
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - app
+  #   environment:
+  #     TRPC_SERVER_API_TOKEN: ${TRPC_SERVER_API_TOKEN}
+  #   volumes:
+  #     - published-sites:/var/publish
+  #     - publisher-work:/var/work
+
   # ── Webstudio builder ───────────────────────────────────────────────────────
   app:
     image: ${BUILDER_IMAGE:-docker.io/vianmora/webstudio-builder:latest}
@@ -123,6 +159,15 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-webstudio-assets}
+      # Entri automatic DNS setup — optional, set credentials to enable for all users
+      ENTRI_APPLICATION_ID: ${ENTRI_APPLICATION_ID:-webstudio}
+      ENTRI_SECRET: ${ENTRI_SECRET:-}
+      # Service-to-service API token (used by the publisher to call the builder REST API).
+      # Generate with: openssl rand -hex 32
+      TRPC_SERVER_API_TOKEN: ${TRPC_SERVER_API_TOKEN:-}
+      # Set to http://publisher:4000 to enable the automated publisher service.
+      # Leave empty to show the CLI-based publish instructions instead.
+      SELF_HOSTED_PUBLISHER_URL: ${SELF_HOSTED_PUBLISHER_URL:-}
     volumes:
       - uploads:/app/public/s/uploads
 
@@ -130,3 +175,5 @@ volumes:
   db-data:
   uploads:
   minio-data:
+  published-sites:
+  publisher-work:
