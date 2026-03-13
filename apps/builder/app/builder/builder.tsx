@@ -36,6 +36,7 @@ import {
   subscribeModifierKeys,
   $stagingUsername,
   $stagingPassword,
+  $entriEnabled,
 } from "~/shared/nano-states";
 import { $settings, type Settings } from "./shared/client-settings";
 import { builderUrl, getCanvasUrl } from "~/shared/router-utils";
@@ -230,6 +231,7 @@ export type BuilderProps = {
   userPlanFeatures: UserPlanFeatures;
   stagingUsername: string;
   stagingPassword: string;
+  entriEnabled: boolean;
 };
 
 export const Builder = ({
@@ -240,6 +242,7 @@ export const Builder = ({
   authTokenPermissions,
   stagingUsername,
   stagingPassword,
+  entriEnabled,
 }: BuilderProps) => {
   useMount(initBuilderApi);
 
@@ -251,6 +254,7 @@ export const Builder = ({
     $authTokenPermissions.set(authTokenPermissions);
     $stagingUsername.set(stagingUsername);
     $stagingPassword.set(stagingPassword);
+    $entriEnabled.set(entriEnabled);
 
     const controller = new AbortController();
 
