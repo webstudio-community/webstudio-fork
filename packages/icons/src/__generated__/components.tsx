@@ -1476,6 +1476,30 @@ export const BracesIcon: IconComponent = forwardRef(
 );
 BracesIcon.displayName = "BracesIcon";
 
+export const BrushCleaningIcon: IconComponent = forwardRef(
+  ({ fill = "none", size = 16, ...props }, forwardedRef) => {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 16 16"
+        width={size}
+        height={size}
+        fill={fill}
+        {...props}
+        ref={forwardedRef}
+      >
+        <path
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M10.667 14.667 10 12m2.667-2.667a.667.667 0 0 0 .666-.666V8A1.333 1.333 0 0 0 12 6.667h-2A.667.667 0 0 1 9.333 6V2.667a1.333 1.333 0 1 0-2.666 0V6A.667.667 0 0 1 6 6.667H4A1.333 1.333 0 0 0 2.667 8v.667a.667.667 0 0 0 .666.666m9.334 0H3.333m9.334 0 1.315 4.512a.667.667 0 0 1-.649.822H2.667a.668.668 0 0 1-.649-.822l1.315-4.512m2 5.334L6 12"
+        />
+      </svg>
+    );
+  }
+);
+BrushCleaningIcon.displayName = "BrushCleaningIcon";
+
 export const BugIcon: IconComponent = forwardRef(
   ({ fill = "none", size = 16, ...props }, forwardedRef) => {
     return (
@@ -4839,7 +4863,7 @@ export const StretchVerticalIcon: IconComponent = forwardRef(
           stroke="currentColor"
           strokeLinecap="round"
           strokeLinejoin="round"
-          d="M5.4 4.097H4.1c-.72 0-1.302.582-1.302 1.3v7.807c0 .719.583 1.301 1.301 1.301H5.4c.719 0 1.301-.582 1.301-1.3V5.397c0-.719-.582-1.301-1.3-1.301ZM11.906 4.097h-1.301c-.719 0-1.301.582-1.301 1.3v3.254c0 .718.582 1.3 1.3 1.3h1.302c.718 0 1.3-.582 1.3-1.3V5.398c0-.719-.582-1.301-1.3-1.301ZM14.497 1.495h-13"
+          d="M5.333 1.333H4c-.736 0-1.333.597-1.333 1.334v10.666c0 .737.597 1.334 1.333 1.334h1.333c.737 0 1.334-.597 1.334-1.334V2.667c0-.737-.597-1.334-1.334-1.334ZM12 1.333h-1.333c-.737 0-1.334.597-1.334 1.334v10.666c0 .737.597 1.334 1.334 1.334H12c.736 0 1.333-.597 1.333-1.334V2.667c0-.737-.597-1.334-1.333-1.334Z"
         />
       </svg>
     );

@@ -1,4 +1,8 @@
 import { toast } from "@webstudio-is/design-system";
+import {
+  isAutoGridPlacement,
+  resetGridChildPlacement,
+} from "~/builder/features/style-panel/sections/layout/shared/grid-utils";
 import { createCommandsEmitter, type Command } from "~/shared/commands-emitter";
 import {
   $editingItemSelector,
@@ -48,6 +52,7 @@ import { isSyncIdle } from "~/shared/sync/project-queue";
 import { openDeleteUnusedTokensDialog } from "~/builder/shared/style-source-actions";
 import { openDeleteUnusedDataVariablesDialog } from "~/builder/shared/data-variable-utils";
 import { openDeleteUnusedCssVariablesDialog } from "~/builder/shared/css-variable-utils";
+import { openDeleteUnusedAssetsDialog } from "~/builder/shared/asset-manager/delete-unused-assets";
 import { openKeyboardShortcutsDialog } from "~/builder/features/keyboard-shortcuts-dialog";
 import {
   copyInstance,
@@ -363,6 +368,26 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
           if (newRootInstanceId === undefined) {
             return;
           }
+
+          // When the original child is auto-placed in a grid, ensure the
+          // duplicate is also auto-placed to prevent overlapping items.
+          // Manually positioned children keep their exact grid position.
+          if (
+            isAutoGridPlacement({
+              styles: data.styles,
+              styleSources: data.styleSources,
+              styleSourceSelections: data.styleSourceSelections,
+              instanceId: selectedItem.instance.id,
+            })
+          ) {
+            resetGridChildPlacement({
+              styles: data.styles,
+              styleSources: data.styleSources,
+              styleSourceSelections: data.styleSourceSelections,
+              instanceId: newRootInstanceId,
+            });
+          }
+
           const parentInstance = data.instances.get(parentItem.instance.id);
           if (parentInstance === undefined) {
             return;
@@ -531,6 +556,15 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       description: "Remove unused CSS variables",
       handler: () => {
         openDeleteUnusedCssVariablesDialog();
+      },
+    },
+
+    {
+      name: "deleteUnusedAssets",
+      label: "Delete unused assets",
+      description: "Remove unused assets",
+      handler: () => {
+        openDeleteUnusedAssetsDialog();
       },
     },
 
