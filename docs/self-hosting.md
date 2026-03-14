@@ -6,8 +6,6 @@
 
 ## Local install
 
-
-
 ## Deploy with Coolify (recommended)
 
 [Coolify](https://coolify.io) handles SSL, reverse proxy, and restarts automatically.
@@ -38,9 +36,17 @@ However, you still need a **wildcard DNS record** on your DNS provider so that
 *.your-domain.com  →  your-server-IP
 ```
 
+In the `nginx` service settings, set no domain, but fill
+
+1. the PUBLISHER_HOST.
+2. the labels
+
+you will need to configure DNS for `*.{PUBLISHER_HOST}`
+
 ### 3 — Set environment variables
 
 Coolify auto-generates these — leave them as-is:
+
 - `SERVICE_PASSWORD_DB`
 - `SERVICE_PASSWORD_AUTH`
 - `SERVICE_BASE64_64_PGRST`
@@ -87,6 +93,7 @@ docker compose -f deploy/docker-compose.yml up -d
 The builder is then available at `http://localhost:3000`.
 
 To generate the required secrets:
+
 ```bash
 # AUTH_SECRET
 openssl rand -hex 32
@@ -113,10 +120,10 @@ Use the **"Edit zone DNS"** template, restrict it to your domain, and save the t
 
 Add two records, both set to **DNS only** (grey cloud ☁️ — not proxied):
 
-| Type | Name | Content |
-|---|---|---|
-| A | `your-domain.com` | your server IP |
-| A | `*.your-domain.com` | your server IP |
+| Type | Name                | Content        |
+| ---- | ------------------- | -------------- |
+| A    | `your-domain.com`   | your server IP |
+| A    | `*.your-domain.com` | your server IP |
 
 Setting them to DNS only means Traefik handles TLS termination directly.
 
@@ -125,11 +132,11 @@ Setting them to DNS only means Traefik handles TLS termination directly.
 In Coolify → **Server → Proxy configuration**, add to Traefik's command args:
 
 ```yaml
-- '--certificatesresolvers.cloudflare.acme.email=your@email.com'
-- '--certificatesresolvers.cloudflare.acme.storage=/traefik/acme.json'
-- '--certificatesresolvers.cloudflare.acme.dnschallenge=true'
-- '--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare'
-- '--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53'
+- "--certificatesresolvers.cloudflare.acme.email=your@email.com"
+- "--certificatesresolvers.cloudflare.acme.storage=/traefik/acme.json"
+- "--certificatesresolvers.cloudflare.acme.dnschallenge=true"
+- "--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare"
+- "--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
 ```
 
 And add the API token to Traefik's environment:
@@ -154,6 +161,7 @@ Traefik will then automatically request and renew a wildcard certificate for
 > **The "Publish" button does not work in self-hosted mode.**
 
 Clicking Publish creates build data in the database but returns:
+
 ```
 Build data for publishing has been successfully created.
 Use the Webstudio CLI to generate the code.
@@ -201,22 +209,22 @@ out of the box.
 
 ## All environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `POSTGRES_PASSWORD` | ✅ | — | PostgreSQL password |
-| `DATABASE_URL` | ✅ | — | PostgreSQL connection URL |
-| `DIRECT_URL` | ✅ | — | Direct PostgreSQL URL (bypasses pooler, used by migrations) |
-| `PGRST_JWT_SECRET` | ✅ | — | Secret for PostgREST JWT auth (≥ 64 chars) |
-| `AUTH_SECRET` | ✅ | — | Session cookie signing secret |
-| `DEV_LOGIN` | — | — | `true` = password login (password = `AUTH_SECRET`) |
-| `DEV_LOGIN_EMAIL` | — | `admin@example.com` | Email for dev login |
-| `GH_CLIENT_ID` / `GH_CLIENT_SECRET` | — | — | GitHub OAuth |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | — | Google OAuth |
-| `PUBLISHER_HOST` | — | `wstd.work` | Domain shown in the builder UI for staging URLs. Does not serve published sites. |
-| `FEATURES` | — | `*` | Feature flags (`*` = all enabled) |
-| `USER_PLAN` | — | `pro` | Plan level for all users |
-| `MAX_ASSETS_PER_PROJECT` | — | `50` | Asset upload limit per project |
-| `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | — | — | S3-compatible storage. Omit to use a local Docker volume. |
+| Variable                                                                                | Required | Default             | Description                                                                      |
+| --------------------------------------------------------------------------------------- | -------- | ------------------- | -------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`                                                                     | ✅       | —                   | PostgreSQL password                                                              |
+| `DATABASE_URL`                                                                          | ✅       | —                   | PostgreSQL connection URL                                                        |
+| `DIRECT_URL`                                                                            | ✅       | —                   | Direct PostgreSQL URL (bypasses pooler, used by migrations)                      |
+| `PGRST_JWT_SECRET`                                                                      | ✅       | —                   | Secret for PostgREST JWT auth (≥ 64 chars)                                       |
+| `AUTH_SECRET`                                                                           | ✅       | —                   | Session cookie signing secret                                                    |
+| `DEV_LOGIN`                                                                             | —        | —                   | `true` = password login (password = `AUTH_SECRET`)                               |
+| `DEV_LOGIN_EMAIL`                                                                       | —        | `admin@example.com` | Email for dev login                                                              |
+| `GH_CLIENT_ID` / `GH_CLIENT_SECRET`                                                     | —        | —                   | GitHub OAuth                                                                     |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                             | —        | —                   | Google OAuth                                                                     |
+| `PUBLISHER_HOST`                                                                        | —        | `wstd.work`         | Domain shown in the builder UI for staging URLs. Does not serve published sites. |
+| `FEATURES`                                                                              | —        | `*`                 | Feature flags (`*` = all enabled)                                                |
+| `USER_PLAN`                                                                             | —        | `pro`               | Plan level for all users                                                         |
+| `MAX_ASSETS_PER_PROJECT`                                                                | —        | `50`                | Asset upload limit per project                                                   |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | —        | —                   | S3-compatible storage. Omit to use a local Docker volume.                        |
 
 ---
 
