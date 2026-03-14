@@ -266,30 +266,44 @@ export const updateStatus = async (
 
   // If not active, re-verify TXT via DNS in case in-memory state was lost (e.g. server restart in self-hosting).
   if (domainStatus !== "active") {
-    const domainRow = await context.postgrest.client
-      .from("domainsVirtual")
-      .select("expectedTxtRecord")
+    const domainIdRow = await context.postgrest.client
+      .from("Domain")
+      .select("id")
       .eq("domain", domain)
-      .eq("projectId", props.projectId)
       .single();
 
-    if (!domainRow.error && domainRow.data.expectedTxtRecord) {
-      const reVerifyResult = await context.domain.domainTrpc.create.mutate({
-        domain,
-        txtRecord: domainRow.data.expectedTxtRecord,
-      });
+    if (!domainIdRow.error) {
+      const projectDomainRow = await context.postgrest.client
+        .from("ProjectDomain")
+        .select("txtRecord")
+        .eq("domainId", domainIdRow.data.id)
+        .eq("projectId", props.projectId)
+        .single();
 
-      if (reVerifyResult.success) {
-        domainStatus = "active";
-      } else {
-        domainError = reVerifyResult.error;
+      if (!projectDomainRow.error && projectDomainRow.data.txtRecord) {
+        const reVerifyResult = await context.domain.domainTrpc.create.mutate({
+          domain,
+          txtRecord: projectDomainRow.data.txtRecord,
+        });
+
+        if (reVerifyResult.success) {
+          domainStatus = "active";
+        } else {
+          domainError = reVerifyResult.error;
+        }
       }
     }
   }
 
+  const originalError =
+    statusResult.data.status === "error" ? statusResult.data.error : null;
+
   const data =
     domainStatus === "error"
-      ? ({ status: "error" as const, error: domainError ?? "Unknown error" })
+      ? ({
+          status: "error" as const,
+          error: domainError ?? originalError ?? "Unknown error",
+        })
       : ({ status: domainStatus });
 
   // update domain status
