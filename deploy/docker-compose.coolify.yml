@@ -209,9 +209,15 @@ services:
       - PUBLISHER_HOST=${PUBLISHER_HOST:-wstd.work}
       # Appel interne HTTP direct vers le builder (évite Traefik + TLS depuis le container)
       - BUILDER_INTERNAL_URL=http://app:3000
+      # Dossier dynamic de Traefik — le publisher y écrit un fichier YAML par domaine
+      # custom pour que Traefik demande automatiquement un certificat Let's Encrypt.
+      - TRAEFIK_DYNAMIC_DIR=/traefik-dynamic
     volumes:
       - published-sites:/var/publish
       - publisher-work:/var/work
+      # Bind-mount du dossier dynamic Traefik (géré par Coolify proxy).
+      # Traefik recharge automatiquement les fichiers grâce à --providers.file.watch=true.
+      - /data/coolify/proxy/dynamic:/traefik-dynamic
 
   # ── Nginx — static site server ───────────────────────────────────────────────
   # Serves published Webstudio projects from the shared published-sites volume.
