@@ -10,7 +10,7 @@ import {
   Link,
 } from "@webstudio-is/design-system";
 import { trpcClient } from "~/shared/trpc/trpc-client";
-import { $userPlanFeatures } from "~/shared/nano-states";
+import { $userPlanFeatures, $entriEnabled } from "~/shared/nano-states";
 import { extractCname } from "./cname";
 import { UploadIcon } from "@webstudio-is/icons";
 
@@ -100,6 +100,7 @@ export const Entri = ({ domain, dnsRecords, onClose }: EntriProps) => {
   entriGlobalStyles();
   const userPlanFeatures = useStore($userPlanFeatures);
   const hasPaidPlan = userPlanFeatures.purchases.length > 0;
+  const entriEnabled = useStore($entriEnabled);
   const { error, isOpen, showDialog } = useEntri({
     domain,
     dnsRecords,
@@ -114,7 +115,7 @@ export const Entri = ({ domain, dnsRecords, onClose }: EntriProps) => {
         color="primary"
         type="button"
         onClick={() => {
-          if (hasPaidPlan) {
+          if (hasPaidPlan || entriEnabled) {
             showDialog();
           } else {
             setRequestUpgrade(true);
