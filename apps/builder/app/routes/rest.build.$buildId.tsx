@@ -56,11 +56,20 @@ export const loader = async ({
         ? undefined
         : await getUserById(context, project.userId);
 
+    const deployment = pagesCanvasData.build.deployment;
+    const customDomains =
+      deployment !== undefined && deployment.destination !== "static"
+        ? deployment.domains.filter(
+            (d) => d !== project.domain && d.includes(".")
+          )
+        : [];
+
     return {
       ...pagesCanvasData,
       user: user ? { email: user.email } : undefined,
       projectDomain: project.domain,
       projectTitle: project.title,
+      customDomains,
     };
   } catch (error) {
     // If a Response is thrown, we're rethrowing it for Remix to handle.
