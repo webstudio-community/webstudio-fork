@@ -203,6 +203,7 @@ export const loader = async (loaderArgs: LoaderFunctionArgs) => {
         userPlanFeatures,
         stagingUsername: env.STAGING_USERNAME,
         stagingPassword: env.STAGING_PASSWORD,
+        entriEnabled: Boolean(env.ENTRI_SECRET),
       } as const,
       {
         headers,
