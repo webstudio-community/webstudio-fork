@@ -41,6 +41,22 @@ export const Output = z.discriminatedUnion("success", [
  * When not set, publish returns NOT_IMPLEMENTED and the user is shown the CLI instructions.
  **/
 export const deploymentRouter = router({
+  capabilities: procedure.query(async () => {
+    const publisherUrl = process.env.SELF_HOSTED_PUBLISHER_URL;
+    if (publisherUrl === undefined) {
+      return { cloudflare: false };
+    }
+    try {
+      const response = await fetch(`${publisherUrl}/capabilities`);
+      if (response.ok) {
+        return (await response.json()) as { cloudflare: boolean };
+      }
+    } catch {
+      // publisher unreachable
+    }
+    return { cloudflare: false };
+  }),
+
   publish: procedure
     .input(PublishInput)
     .output(Output)

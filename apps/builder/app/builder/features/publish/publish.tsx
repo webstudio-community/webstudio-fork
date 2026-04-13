@@ -418,7 +418,15 @@ const Publish = ({
   const hasPaidPlan = userPlanFeatures.purchases.length > 0;
   const countdown = usePublishCountdown(isPublishing);
   const publisherHost = useStore($publisherHost);
-  const [buildMode, setBuildMode] = useState<"ssg" | "ssr">("ssr");
+  const [buildMode, setBuildMode] = useState<"ssg" | "ssr" | "cloudflare">("ssr");
+  const { load: loadCapabilities, data: capabilities } =
+    trpcClient.domain.publisherCapabilities.useQuery();
+
+  useEffect(() => {
+    if (publisherHost) {
+      loadCapabilities({});
+    }
+  }, [publisherHost, loadCapabilities]);
 
   useEffect(() => {
     const form = buttonRef.current?.closest("form");
@@ -578,9 +586,20 @@ const Publish = ({
         <Select
           fullWidth
           value={buildMode}
-          options={["ssr", "ssg"] as const}
-          getLabel={(value) =>
-            value === "ssr" ? "SSR (dynamic data)" : "SSG (static)"
+          options={["ssr", "ssg", "cloudflare"] as const}
+          getLabel={(value) => {
+            if (value === "ssr") return "SSR (dynamic data)";
+            if (value === "ssg") return "SSG (static)";
+            return "Cloudflare Pages";
+          }}
+          getItemProps={(value) =>
+            value === "cloudflare" && !capabilities?.cloudflare
+              ? {
+                  disabled: true,
+                  title:
+                    "Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID on the publisher to enable",
+                }
+              : {}
           }
           onChange={(value) => setBuildMode(value)}
         />
