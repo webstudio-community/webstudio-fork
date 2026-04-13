@@ -5,7 +5,7 @@ import { AUTH_PROVIDERS } from "~/shared/session";
 import { clearReturnToCookie, returnToPath } from "~/services/cookie.server";
 import { preventCrossOriginCookie } from "~/services/no-cross-origin-cookie";
 import { redirect, setNoStoreToRedirect } from "~/services/no-store-redirect";
-import { applyDevPlan, parsePlansEnv } from "@webstudio-is/plans/index.server";
+import { applyDevPlan } from "@webstudio-is/plans/index.server";
 import { createPostgrestContext } from "~/shared/context.server";
 import env from "~/env/env.server";
 
@@ -27,19 +27,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Clone before authenticator consumes the body.
   const formData = await request.clone().formData();
   const devPlanRaw = formData.get("devPlan");
-  const rawPlanName =
+  const planName =
     typeof devPlanRaw === "string" && devPlanRaw !== ""
       ? devPlanRaw
       : (env.USER_PLAN ?? null);
-  // Normalize plan name: case-insensitive match against PLANS config so that
-  // USER_PLAN=pro matches "Pro" in PLANS without requiring exact casing.
-  const planNames = [...parsePlansEnv(env.PLANS).keys()];
-  const planName =
-    rawPlanName !== null
-      ? (planNames.find(
-          (n) => n.toLowerCase() === rawPlanName.toLowerCase()
-        ) ?? rawPlanName)
-      : null;
   const emailRaw = formData.get("email");
   const email =
     typeof emailRaw === "string" && emailRaw.trim() !== ""
