@@ -1,6 +1,29 @@
 import type { Client } from "@webstudio-is/postgrest/index.server";
+import type { PlanFeatures } from "./plan-features";
 
 type PostgrestContext = { client: Client };
+
+/**
+ * Meta features written into the dev Product row for each plan name.
+ * These are read back by getPlanInfo via parseProductMeta, so no PLANS
+ * env variable is needed in the dev environment.
+ */
+const DEV_PLAN_META: Record<string, Partial<PlanFeatures>> = {
+  Pro: {
+    canDownloadAssets: true,
+    canRestoreBackups: true,
+    allowAdditionalPermissions: true,
+    allowDynamicData: true,
+    allowContentMode: true,
+    allowStagingPublish: true,
+    maxContactEmailsPerProject: 5,
+    maxDomainsAllowedPerUser: 100,
+    maxDailyPublishesPerUser: 100,
+    maxWorkspaces: 5,
+    maxProjectsAllowedPerUser: 100,
+    maxAssetsPerProject: 500,
+  },
+};
 
 /**
  * Upsert or delete dev plan rows in the DB for the given user email.
@@ -41,7 +64,7 @@ export const applyDevPlan = async (
     const productResult = await postgrest.client.from("Product").upsert({
       id: productId,
       name: planName,
-      meta: {},
+      meta: DEV_PLAN_META[planName] ?? {},
       features: [],
       images: [],
     });

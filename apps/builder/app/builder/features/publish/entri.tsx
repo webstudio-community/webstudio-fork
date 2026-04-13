@@ -11,7 +11,7 @@ import {
 } from "@webstudio-is/design-system";
 import { UploadIcon } from "@webstudio-is/icons";
 import { trpcClient } from "~/shared/trpc/trpc-client";
-import { $entriEnabled, $planFeatures } from "~/shared/nano-states";
+import { $entriEnabled, $purchases } from "~/shared/nano-states";
 import { extractCname } from "./cname";
 
 // https://developers.entri.com/docs/install
@@ -98,8 +98,8 @@ const useEntri = ({ domain, dnsRecords, onClose }: EntriProps) => {
 
 export const Entri = ({ domain, dnsRecords, onClose }: EntriProps) => {
   entriGlobalStyles();
-  const planFeatures = useStore($planFeatures);
-  const hasPaidPlan = planFeatures.purchases.length > 0;
+  const purchases = useStore($purchases);
+  const hasPaidPlan = purchases.length > 0;
   const entriEnabled = useStore($entriEnabled);
   const { error, isOpen, showDialog } = useEntri({
     domain,
