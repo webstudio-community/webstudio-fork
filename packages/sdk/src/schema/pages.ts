@@ -247,6 +247,16 @@ export type CompilerSettings = z.infer<typeof CompilerSettings>;
 
 export type Page = z.infer<typeof Page>;
 
+export const PageTemplate = z.object({
+  id: PageId,
+  name: PageName,
+  title: PageTitle,
+  rootInstanceId: z.string(),
+  systemDataSourceId: z.string().optional(),
+  meta: commonPageFields.meta,
+});
+export type PageTemplate = z.infer<typeof PageTemplate>;
+
 export const Pages = z
   .object({
     meta: ProjectMeta.optional(),
