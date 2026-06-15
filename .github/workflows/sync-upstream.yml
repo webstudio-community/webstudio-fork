@@ -118,15 +118,21 @@ jobs:
             --title "chore(sync): merge upstream into develop (conflicts to resolve)" \
             --body "The automatic merge of \`main\` into \`develop\` failed due to conflicts.
 
-          Please resolve the conflicts locally:
+          Please resolve the conflicts locally on the sync branch, then merge this PR:
 
           \`\`\`bash
           git fetch origin
-          git checkout develop
-          git merge origin/main
-          # resolve conflicts, then:
-          git push origin develop
-          \`\`\`" \
+          git checkout $BRANCH
+          git merge origin/develop
+          # resolve conflicts carefully for each file, then:
+          git push origin $BRANCH
+          \`\`\`
+
+          > **⚠️ pnpm-lock.yaml**: never use 'accept both/current/incoming' — always regenerate:
+          > \`\`\`bash
+          > pnpm install --no-frozen-lockfile
+          > git add pnpm-lock.yaml
+          > \`\`\`" \
             --base develop \
             --head "$BRANCH"
 
