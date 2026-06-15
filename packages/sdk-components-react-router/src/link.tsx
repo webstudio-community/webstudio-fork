@@ -1,10 +1,8 @@
-import { Link as RouterLink, useLocation, useResolvedPath } from "react-router";
-import { createLink } from "@webstudio-is/sdk-components-react";
+import { type ComponentPropsWithoutRef, forwardRef, useContext } from "react";
+import { NavLink as RemixLink } from "react-router";
+import { ReactSdkContext } from "@webstudio-is/react-sdk/runtime";
+import { Link as BaseLink } from "@webstudio-is/sdk-components-react";
 
-export const Link = createLink({
-  Link: RouterLink,
-  useLocation,
-  useResolvedPath,
 type Props = Omit<ComponentPropsWithoutRef<typeof BaseLink>, "target"> & {
   // override (string & {}) in target to generate keywords
   target?: "_self" | "_blank" | "_parent" | "_top";
@@ -45,3 +43,5 @@ export const Link = forwardRef<HTMLAnchorElement, Props>((props, ref) => {
 
   return <BaseLink {...rest} ref={ref} />;
 });
+
+Link.displayName = BaseLink.displayName;
