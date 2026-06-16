@@ -52,48 +52,94 @@ pnpm test         # vitest run
 
 The builder requires PostgreSQL + PostgREST running locally. The `apps/builder/docker-compose.yaml` provides both.
 
-### Setup
+**Windows setup**: Docker runs in WSL; all pnpm commands run in PowerShell. Do not mix — `node_modules` installed from Windows contains Windows binaries and will break if used from WSL, and vice versa.
 
-**1. Start the containers** (from WSL if on Windows — Docker Engine runs in WSL):
+### First-time setup (Windows + WSL Docker)
+
+**1. Configure pnpm to use Git Bash** — the root `.npmrc` already contains:
+
+```
+script-shell=C:\Program Files\Git\bin\bash.exe
+```
+
+This lets pnpm run build scripts that use `rm -rf` on Windows. Requires [Git for Windows](https://git-scm.com/download/win).
+
+**2. Install dependencies** (PowerShell, repo root):
+
+```powershell
+pnpm install
+```
+
+**3. Build internal packages** (PowerShell, repo root — first time only, or after pulling upstream changes):
+
+```powershell
+pnpm -r --filter='./packages/**' build
+```
+
+> `pnpm build` (without filter) will fail on `packages/cli` due to a known issue with the proprietary animation package banner. This does not affect the dev server.
+
+**4. Start the containers** (WSL):
+
 ```bash
-cd apps/builder
+cd /path/to/webstudio-fork/apps/builder
 docker compose up -d
 ```
 
 This starts:
+
 - **PostgreSQL 15** (Supabase image) on port `5432`
-- **PostgREST v12** on port `3000` (shares network with the db container via `network_mode: service:db`)
+- **PostgREST v12** on port `3000` (shares db network via `network_mode: service:db`)
 
-> **Windows note**: if you have a local PostgreSQL service, stop it first to free port 5432
-> (`Stop-Service postgresql-x64-17` in PowerShell, or via Windows Services).
+> If you have a local PostgreSQL service on Windows, stop it first: `Stop-Service postgresql-x64-17`
 
-**2. Run migrations** (first time, or after any schema change):
-```bash
-# From repo root
+**5. Run migrations** (PowerShell, repo root — first time only, or after schema changes):
+
+```powershell
 pnpm migrations migrate
 ```
 
-**3. Start the builder**:
-```bash
-cd apps/builder
-pnpm dev
+**6. Start the builder** (PowerShell, from `apps/builder`):
+
+```powershell
+$env:DOCKER_DEV="true"; pnpm dev
 ```
 
-> **Windows + WSL Docker**: Vite must bind on `0.0.0.0` instead of `wstd.dev` to be reachable.
-> Set `DOCKER_DEV=true` in your shell, **or** add it to `apps/builder/.env.development` (already set in the committed file).
+> `DOCKER_DEV=true` makes Vite bind on `0.0.0.0` instead of `wstd.dev`. Must be set as a shell variable — `.env.development` is not read by `vite.config.ts` at startup.
 
-**4. Open the builder**: `https://localhost:5173`
+**7. Open the builder**: `https://localhost:5173`
 
 - Bypass the certificate warning (cert is for `wstd.dev`, not `localhost`)
 - Login with the secret from `AUTH_SECRET` in `.env.development` (default: `1234`)
-- First load: Vite optimises deps and reloads — refresh the page once
+- First load is slow — Vite pre-bundles dependencies. Wait, then refresh the page.
+
+### Daily startup
+
+```bash
+# WSL
+docker compose up -d   # from apps/builder
+```
+
+```powershell
+# PowerShell, from apps/builder
+$env:DOCKER_DEV="true"; pnpm dev
+```
+
+### Resetting node_modules
+
+Always delete from PowerShell (fast), then reinstall from PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force node_modules
+pnpm install
+pnpm -r --filter='./packages/**' build
+```
 
 ### Environment files
 
-| File | Purpose |
-|---|---|
-| `apps/builder/.env` | Default config (DB URL, PostgREST URL, `DEV_LOGIN=true`) |
-| `apps/builder/.env.development` | Local overrides (`AUTH_SECRET=1234`, `DOCKER_DEV=true`) |
+| File                            | Purpose                                                  |
+| ------------------------------- | -------------------------------------------------------- |
+| `apps/builder/.env`             | Default config (DB URL, PostgREST URL, `DEV_LOGIN=true`) |
+| `apps/builder/.env.development` | Local overrides (`AUTH_SECRET=1234`, `DOCKER_DEV=true`)  |
 
 Both files are committed. Edit `.env.development` for machine-specific overrides.
 
