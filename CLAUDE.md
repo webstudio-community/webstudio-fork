@@ -48,6 +48,57 @@ pnpm typecheck    # Uses tsgo (TypeScript native preview) for speed
 pnpm test         # vitest run
 ```
 
+## Local Development (Docker)
+
+The builder requires PostgreSQL + PostgREST running locally. The `apps/builder/docker-compose.yaml` provides both.
+
+### Setup
+
+**1. Start the containers** (from WSL if on Windows — Docker Engine runs in WSL):
+```bash
+cd apps/builder
+docker compose up -d
+```
+
+This starts:
+- **PostgreSQL 15** (Supabase image) on port `5432`
+- **PostgREST v12** on port `3000` (shares network with the db container via `network_mode: service:db`)
+
+> **Windows note**: if you have a local PostgreSQL service, stop it first to free port 5432
+> (`Stop-Service postgresql-x64-17` in PowerShell, or via Windows Services).
+
+**2. Run migrations** (first time, or after any schema change):
+```bash
+# From repo root
+pnpm migrations migrate
+```
+
+**3. Start the builder**:
+```bash
+cd apps/builder
+pnpm dev
+```
+
+> **Windows + WSL Docker**: Vite must bind on `0.0.0.0` instead of `wstd.dev` to be reachable.
+> Set `DOCKER_DEV=true` in your shell, **or** add it to `apps/builder/.env.development` (already set in the committed file).
+
+**4. Open the builder**: `https://localhost:5173`
+
+- Bypass the certificate warning (cert is for `wstd.dev`, not `localhost`)
+- Login with the secret from `AUTH_SECRET` in `.env.development` (default: `1234`)
+- First load: Vite optimises deps and reloads — refresh the page once
+
+### Environment files
+
+| File | Purpose |
+|---|---|
+| `apps/builder/.env` | Default config (DB URL, PostgREST URL, `DEV_LOGIN=true`) |
+| `apps/builder/.env.development` | Local overrides (`AUTH_SECRET=1234`, `DOCKER_DEV=true`) |
+
+Both files are committed. Edit `.env.development` for machine-specific overrides.
+
+---
+
 ## Architecture
 
 ### Monorepo Structure
