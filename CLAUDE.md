@@ -56,7 +56,7 @@ The builder requires PostgreSQL + PostgREST running locally. The `apps/builder/d
 
 ### First-time setup (Windows + WSL Docker)
 
-**1. Configure pnpm to use Git Bash** — the root `.npmrc` already contains:
+**1. Configure pnpm to use Git Bash** — create `webstudio-fork/.npmrc` (gitignored, not committed):
 
 ```
 script-shell=C:\Program Files\Git\bin\bash.exe
