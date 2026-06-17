@@ -57,6 +57,15 @@ RUN pnpm --filter=@webstudio-is/http-client build && \
 # (not in the package's own .gitignore) specifically so pnpm deploy includes it.
 RUN pnpm --filter "@webstudio-is/builder" --prod deploy /standalone
 
+# pnpm v9 with autoInstallPeers=true does not create a top-level symlink for
+# react-router-dom: it treats it as already provided via @remix-run/react's peer
+# resolution, so Node cannot find it at runtime (ERR_MODULE_NOT_FOUND).
+# Create the symlink explicitly from the virtual store.
+RUN store=/standalone/node_modules/.pnpm && \
+    entry=$(ls "$store" | grep '^react-router-dom@' | head -1) && \
+    [ -n "$entry" ] && [ ! -e /standalone/node_modules/react-router-dom ] && \
+    ln -sf "$store/$entry/node_modules/react-router-dom" /standalone/node_modules/react-router-dom || true
+
 # ─── Stage 2: prisma-cli ─────────────────────────────────────────────────────
 # Install the Prisma CLI in isolation so it carries Alpine-compatible engine binaries
 # without polluting the app's node_modules.
