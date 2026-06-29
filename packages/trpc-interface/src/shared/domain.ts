@@ -8,8 +8,8 @@ import { resolveTxt } from "node:dns/promises";
 import { z } from "zod";
 import { router, procedure } from "./trpc";
 
-const CreateInput = z.object({ domain: z.string(), txtRecord: z.string() });
-const Input = z.object({ domain: z.string() });
+const createInput = z.object({ domain: z.string(), txtRecord: z.string() });
+const input = z.object({ domain: z.string() });
 
 const createOutput = <T extends z.ZodType>(data: T) =>
   z.discriminatedUnion("success", [
@@ -32,7 +32,7 @@ export const domainRouter = router({
    * The user must add a TXT record at _webstudio-challenge.<domain> with the expected value.
    */
   create: procedure
-    .input(CreateInput)
+    .input(createInput)
     .output(createOutput(z.optional(z.undefined())))
     .mutation(async ({ input }) => {
       const txtHost = `_webstudio_is.${input.domain}`;
@@ -56,7 +56,7 @@ export const domainRouter = router({
     }),
 
   refresh: procedure
-    .input(Input)
+    .input(input)
     .output(createOutput(z.optional(z.undefined())))
     .mutation(async () => {
       return { success: true };
@@ -67,7 +67,7 @@ export const domainRouter = router({
    * Falls back to re-checking DNS if not in the verified set (e.g. after restart).
    */
   getStatus: procedure
-    .input(Input)
+    .input(input)
     .output(
       createOutput(
         z.discriminatedUnion("status", [

@@ -3,10 +3,10 @@ import { cleanStores } from "nanostores";
 import { createDefaultPages } from "@webstudio-is/project-build";
 import { setEnv } from "@webstudio-is/feature-flags";
 import {
-  DataSource,
+  type DataSource,
   type Instance,
   ROOT_INSTANCE_ID,
-  Resource,
+  type Resource,
   SYSTEM_VARIABLE_ID,
   collectionComponent,
 } from "@webstudio-is/sdk";
@@ -440,6 +440,63 @@ test("compute expression from object collection items", () => {
           "bodyId",
         ]),
         new Map<string, unknown>([["ariaLabel", "banana"]]),
+      ],
+    ])
+  );
+
+  cleanStores($propValuesByInstanceSelector);
+});
+
+test("compute prop values inside collection without item parameter", () => {
+  $instances.set(
+    toMap([
+      {
+        id: "list",
+        type: "instance",
+        component: collectionComponent,
+        children: [{ type: "id", value: "item" }],
+      },
+      {
+        id: "item",
+        type: "instance",
+        component: "Box",
+        children: [],
+      },
+    ])
+  );
+  selectPageRoot("list");
+  $dataSources.set(new Map());
+  $props.set(
+    toMap([
+      {
+        id: "prop1",
+        name: "data",
+        instanceId: "list",
+        type: "json",
+        value: ["orange", "apple"],
+      },
+      {
+        id: "prop2",
+        name: "ariaLabel",
+        instanceId: "item",
+        type: "string",
+        value: "collection item",
+      },
+    ])
+  );
+  expect($propValuesByInstanceSelector.get()).toEqual(
+    new Map([
+      [
+        getInstanceKey(["list"]),
+        new Map<string, unknown>([["data", ["orange", "apple"]]]),
+      ],
+      [
+        getInstanceKey(["item", "list[0]", "list"]),
+        new Map<string, unknown>([["ariaLabel", "collection item"]]),
+      ],
+      [
+        getInstanceKey(["item", "list[1]", "list"]),
+        new Map<string, unknown>([["ariaLabel", "collection item"]]),
       ],
     ])
   );
@@ -982,6 +1039,55 @@ test("compute item values for collection with nested object data", () => {
       )
       ?.get(itemParameterId)
   ).toEqual({ name: "Bob", age: 25 });
+});
+
+test("compute inherited item values inside collection without item parameter", () => {
+  const dataVariable = new Variable("dataVariable", [
+    { items: ["apple", "banana"] },
+  ]);
+  const outerItem = new Parameter("Outer Item");
+  const data = renderData(
+    <$.Body ws:id="bodyId">
+      <ws.collection
+        ws:id="outerCollectionId"
+        data={expression`${dataVariable}`}
+        item={outerItem}
+      >
+        <ws.collection
+          ws:id="innerCollectionId"
+          data={expression`${outerItem}.items`}
+        >
+          <$.Box ws:id="boxId"></$.Box>
+        </ws.collection>
+      </ws.collection>
+    </$.Body>
+  );
+  $instances.set(data.instances);
+  $dataSources.set(data.dataSources);
+  $props.set(data.props);
+  const outerItemParameterId = Array.from(data.dataSources.values()).find(
+    (dataSource) => dataSource.name === "Outer Item"
+  )?.id;
+  selectPageRoot("bodyId");
+  $dataSourceVariables.set(new Map([]));
+  const values = $variableValuesByInstanceSelector.get();
+  expect(
+    values
+      .get(
+        getInstanceKey([
+          "boxId",
+          "innerCollectionId[0]",
+          "innerCollectionId",
+          "outerCollectionId[0]",
+          "outerCollectionId",
+          "bodyId",
+          ROOT_INSTANCE_ID,
+        ])
+      )
+      ?.get(outerItemParameterId ?? "")
+  ).toEqual({
+    items: ["apple", "banana"],
+  });
 });
 
 test("compute resource variable values", () => {

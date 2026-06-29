@@ -1,6 +1,6 @@
 import type { Meta } from "@storybook/react";
 import { Box, StorySection, theme } from "@webstudio-is/design-system";
-import { getStyleDeclKey, StyleDecl } from "@webstudio-is/sdk";
+import { getStyleDeclKey, type StyleDecl } from "@webstudio-is/sdk";
 import { createDefaultPages } from "@webstudio-is/project-build";
 import { InsetControl } from "./inset-control";
 import { registerContainers } from "~/shared/sync/sync-stores";
@@ -12,10 +12,7 @@ import {
   $styleSources,
   $styleSourceSelections,
 } from "~/shared/sync/data-stores";
-import {
-  $selectedPageId,
-  $selectedInstanceSelector,
-} from "~/shared/nano-states";
+import { $selectedPageId, selectInstance } from "~/shared/nano-states";
 
 const top: StyleDecl = {
   breakpointId: "base",
@@ -92,7 +89,7 @@ $pages.set(
   })
 );
 $selectedPageId.set("homePageId");
-$selectedInstanceSelector.set(["box"]);
+selectInstance(["box"]);
 
 export const Inset = () => {
   return (

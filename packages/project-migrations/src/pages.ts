@@ -1,12 +1,18 @@
 import {
-  Pages as PagesSchema,
+  compilerSettings,
   type Folder,
+  folder,
   type Page,
+  page,
   type PageTemplate,
+  pageTemplate,
+  projectMeta,
+  pageRedirect,
   type Pages,
-  isRootFolder,
-  ROOT_FOLDER_ID,
-} from "@webstudio-is/sdk";
+  pages,
+} from "@webstudio-is/sdk/schema";
+import { isRootFolder, ROOT_FOLDER_ID } from "@webstudio-is/sdk";
+import { z } from "zod";
 
 type LegacyPages = {
   meta?: Pages["meta"];
@@ -25,6 +31,23 @@ export type SerializedPages = Omit<
   pageTemplates?: PageTemplate[] | Record<PageTemplate["id"], PageTemplate>;
   folders: Folder[];
 };
+
+export const serializedPages: z.ZodType<
+  SerializedPages,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  meta: projectMeta.optional(),
+  compiler: compilerSettings.optional(),
+  redirects: z.array(pageRedirect).optional(),
+  homePageId: z.string(),
+  rootFolderId: z.string(),
+  pages: z.array(page),
+  pageTemplates: z
+    .union([z.array(pageTemplate), z.record(pageTemplate)])
+    .optional(),
+  folders: z.array(folder),
+});
 
 type MigratablePages = Omit<Pages, "pages" | "pageTemplates" | "folders"> & {
   pages: Page[] | Record<Page["id"], Page> | Map<Page["id"], Page>;
@@ -91,8 +114,8 @@ const removeOrphanFolderChildren = (
   return nextFolders;
 };
 
-export const serializePages = (pages: Pages): SerializedPages => {
-  const parsedPages = PagesSchema.parse(pages);
+export const serializePages = (pagesData: Pages): SerializedPages => {
+  const parsedPages = pages.parse(pagesData);
   return {
     meta: parsedPages.meta,
     compiler: parsedPages.compiler,
@@ -108,14 +131,14 @@ export const serializePages = (pages: Pages): SerializedPages => {
   };
 };
 
-export const migratePages = (pages: unknown): Pages => {
+export const migratePages = (pagesData: unknown): Pages => {
   if (
-    isSerializedPages(pages) &&
-    pages.pages instanceof Map &&
-    pages.folders instanceof Map
+    isSerializedPages(pagesData) &&
+    pagesData.pages instanceof Map &&
+    pagesData.folders instanceof Map
   ) {
-    const currentPages = pages as Pages;
-    const result = PagesSchema.safeParse(currentPages);
+    const currentPages = pagesData as Pages;
+    const result = pages.safeParse(currentPages);
     if (result.success && currentPages.pageTemplates !== undefined) {
       return currentPages;
     }
@@ -135,34 +158,34 @@ export const migratePages = (pages: unknown): Pages => {
     };
   }
 
-  if (isSerializedPages(pages)) {
-    const nextPages = toMap<Page>(pages.pages, normalizePage);
-    const nextFolders = toMap<Folder>(pages.folders);
+  if (isSerializedPages(pagesData)) {
+    const nextPages = toMap<Page>(pagesData.pages, normalizePage);
+    const nextFolders = toMap<Folder>(pagesData.folders);
     return {
-      meta: pages.meta,
-      compiler: pages.compiler,
-      redirects: pages.redirects,
-      homePageId: pages.homePageId,
-      rootFolderId: pages.rootFolderId,
+      meta: pagesData.meta,
+      compiler: pagesData.compiler,
+      redirects: pagesData.redirects,
+      homePageId: pagesData.homePageId,
+      rootFolderId: pagesData.rootFolderId,
       pages: nextPages,
       pageTemplates:
-        pages.pageTemplates === undefined
+        pagesData.pageTemplates === undefined
           ? new Map()
-          : toMap<PageTemplate>(pages.pageTemplates),
+          : toMap<PageTemplate>(pagesData.pageTemplates),
       folders: removeOrphanFolderChildren(nextPages, nextFolders),
     };
   }
 
-  if (isLegacyPages(pages) === false) {
+  if (isLegacyPages(pagesData) === false) {
     throw new Error("Pages data has unsupported shape.");
   }
 
   const homePage: Page = {
-    ...normalizePage(pages.homePage),
+    ...normalizePage(pagesData.homePage),
     path: "",
   };
   const nextPages: Pages["pages"] = new Map([[homePage.id, homePage]]);
-  for (const page of pages.pages) {
+  for (const page of pagesData.pages) {
     if (page.id === homePage.id) {
       continue;
     }
@@ -170,13 +193,13 @@ export const migratePages = (pages: unknown): Pages => {
   }
 
   const nextFolders: Pages["folders"] = new Map();
-  for (const folder of pages.folders ?? []) {
+  for (const folder of pagesData.folders ?? []) {
     nextFolders.set(folder.id, { ...folder, children: [...folder.children] });
   }
 
   const rootFolder =
     Array.from(nextFolders.values()).find(isRootFolder) ??
-    pages.folders?.[0] ??
+    pagesData.folders?.[0] ??
     ({
       id: ROOT_FOLDER_ID,
       name: "Root",
@@ -205,7 +228,7 @@ export const migratePages = (pages: unknown): Pages => {
   const referencedIds = new Set(
     Array.from(nextFolders.values()).flatMap((folder) => folder.children)
   );
-  for (const page of pages.pages) {
+  for (const page of pagesData.pages) {
     if (page.id !== homePage.id && referencedIds.has(page.id) === false) {
       nextRootFolder.children.push(page.id);
       referencedIds.add(page.id);
@@ -213,9 +236,9 @@ export const migratePages = (pages: unknown): Pages => {
   }
 
   return {
-    meta: pages.meta,
-    compiler: pages.compiler,
-    redirects: pages.redirects,
+    meta: pagesData.meta,
+    compiler: pagesData.compiler,
+    redirects: pagesData.redirects,
     homePageId: homePage.id,
     rootFolderId: rootFolder.id,
     pages: nextPages,

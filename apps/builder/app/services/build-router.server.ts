@@ -17,15 +17,76 @@ import {
   toPatchResult,
 } from "~/shared/sync/patch/patch-service.server";
 import { normalizePatchRequest } from "~/shared/sync/patch/patch-normalize.server";
-import * as projectApi from "@webstudio-is/project/index.server";
+import { loadById } from "@webstudio-is/project/index.server";
 import type { BuildPatchTransaction } from "@webstudio-is/project/index.server";
 import { loadDevBuildByProjectId } from "@webstudio-is/project-build/index.server";
 import { serializePages } from "@webstudio-is/project-migrations/pages";
 import { loadAssetsByProject } from "@webstudio-is/asset-uploader/index.server";
 import {
-  loadPublishedProjectDataByBuildId,
-  loadPublishedProjectDataByProjectId,
+  checkProjectBuildPermissionInput,
+  importProjectBundleInput,
+  publishedProjectBundle,
+} from "@webstudio-is/protocol";
+import {
+  loadPublishedProjectBundleByBuildId,
+  loadPublishedProjectBundleByProjectId,
 } from "~/shared/db";
+import {
+  assertProjectBuildPermit,
+  importPublishedProjectBundle,
+} from "./project-import.server";
+import {
+  readStagedUploadText,
+  removeStagedUpload,
+} from "./staged-upload.server";
+
+type ImportProjectBundleDependencies = {
+  importPublishedProjectBundle: typeof importPublishedProjectBundle;
+  readStagedUploadText: typeof readStagedUploadText;
+  removeStagedUpload: typeof removeStagedUpload;
+};
+
+const createImportProjectBundleHandler =
+  ({
+    importPublishedProjectBundle,
+    readStagedUploadText,
+    removeStagedUpload,
+  }: ImportProjectBundleDependencies) =>
+  async ({
+    ctx,
+    input,
+  }: {
+    ctx: AppContext;
+    input: z.infer<typeof importProjectBundleInput>;
+  }) => {
+    if (input.uploadId !== undefined) {
+      try {
+        const text = await readStagedUploadText({
+          projectId: input.projectId,
+          uploadId: input.uploadId,
+        });
+        return await importPublishedProjectBundle({
+          ctx,
+          data: publishedProjectBundle.parse(JSON.parse(text)),
+          ignoreVersionCheck: input.ignoreVersionCheck,
+          projectId: input.projectId,
+        });
+      } finally {
+        await removeStagedUpload(input.uploadId).catch(console.error);
+      }
+    }
+
+    if (input.data === undefined) {
+      throw new Error("Project bundle data is required.");
+    }
+
+    return await importPublishedProjectBundle({
+      ctx,
+      data: input.data,
+      ignoreVersionCheck: input.ignoreVersionCheck,
+      projectId: input.projectId,
+    });
+  };
 
 const patchEntryInput = z.object({
   seq: z.number().optional(),
@@ -104,7 +165,7 @@ export const loadBuilderDataByProjectId = async (
   projectId: string,
   ctx: AppContext
 ) => {
-  const project = await projectApi.loadById(projectId, ctx);
+  const project = await loadById(projectId, ctx);
   if (project === null) {
     throw new Error(`Project "${projectId}" not found`);
   }
@@ -131,10 +192,10 @@ export const buildRouter = router({
       return await loadBuilderDataByProjectId(input.projectId, ctx);
     }),
 
-  loadProjectDataByBuildId: procedure
+  loadProjectBundleByBuildId: procedure
     .input(z.object({ buildId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return await loadPublishedProjectDataByBuildId(input.buildId, ctx);
+      return await loadPublishedProjectBundleByBuildId(input.buildId, ctx);
     }),
 
   updatePublishStatus: procedure
@@ -158,11 +219,25 @@ export const buildRouter = router({
       return { success: true };
     }),
 
-  loadProjectDataByProjectId: procedure
+  loadProjectBundleByProjectId: procedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return await loadPublishedProjectDataByProjectId(input.projectId, ctx);
+      return await loadPublishedProjectBundleByProjectId(input.projectId, ctx);
     }),
+
+  checkProjectBuildPermission: procedure
+    .input(checkProjectBuildPermissionInput)
+    .query(async ({ ctx, input }) => {
+      await assertProjectBuildPermit({ ctx, projectId: input.projectId });
+    }),
+
+  importProjectBundle: procedure.input(importProjectBundleInput).mutation(
+    createImportProjectBundleHandler({
+      importPublishedProjectBundle,
+      readStagedUploadText,
+      removeStagedUpload,
+    })
+  ),
 
   createCollabToken: procedure
     .input(
@@ -259,3 +334,7 @@ export const buildRouter = router({
       }
     }),
 });
+
+export const __testing__ = {
+  createImportProjectBundleHandler,
+};

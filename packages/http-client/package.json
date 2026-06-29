@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@trpc/client": "^10.45.2",
-    "@webstudio-is/project-migrations": "workspace:*",
-    "@webstudio-is/sdk": "workspace:*"
+    "@webstudio-is/protocol": "workspace:*",
+    "tus-js-client": "^4.3.1"
   },
   "devDependencies": {
     "@webstudio-is/tsconfig": "workspace:*",

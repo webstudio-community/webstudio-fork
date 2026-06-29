@@ -13,7 +13,7 @@ import {
   getProjectOwnerId,
   AuthorizationError,
 } from "@webstudio-is/trpc-interface/index.server";
-import { Templates } from "@webstudio-is/sdk";
+import { templates } from "@webstudio-is/sdk";
 import { db } from "../db";
 import { isDomainUsingCloudflareNameservers } from "../rdap";
 
@@ -80,7 +80,7 @@ export const domainRouter = router({
         z.object({
           projectId: z.string(),
           destination: z.literal("static"),
-          templates: z.array(Templates),
+          templates: z.array(templates),
         }),
       ])
     )
@@ -146,7 +146,7 @@ export const domainRouter = router({
         }
 
         const result = await deploymentTrpc.publish.mutate({
-          // used to load build data from the builder with build.loadProjectDataByBuildId
+          // used to load build data from the builder with build.loadProjectBundleByBuildId
           builderOrigin: env.BUILDER_ORIGIN,
           githubSha: env.GITHUB_SHA,
           buildId: build.id,
