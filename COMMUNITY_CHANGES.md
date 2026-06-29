@@ -26,6 +26,7 @@ Additions on the `develop` branch versus [webstudio-is/webstudio](https://github
 | [`f6a7efb`](../../commit/f6a7efba1) | Expose `customDomains` in `/rest/build/:buildId` response             |
 | [`8e8c371`](../../commit/8e8c3e731) | Always re-verify TXT via DNS in `updateStatus`                        |
 | [`7b53369`](../../commit/7b5336924) | Enable Entri domain setup without Pro plan requirement                |
+| [`fbf1689`](../../commit/fbf16898c) | Add `customDomains` field to `PublishedProjectBundle` protocol schema |
 | TBD                                 | Allow apex domain publishing; show A record instruction in builder UI |
 
 ## Publish / SSR–SSG
