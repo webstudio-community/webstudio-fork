@@ -325,6 +325,9 @@ importers:
       colorjs.io:
         specifier: ^0.6.1
         version: 0.6.1
+      compression:
+        specifier: ^1.7.4
+        version: 1.7.4
       cookie:
         specifier: ^1.0.1
         version: 1.0.1
@@ -397,6 +400,9 @@ importers:
       react-error-boundary:
         specifier: ^5.0.0
         version: 5.0.0(react@18.3.0-canary-14898b6a9-20240318)
+      react-router-dom:
+        specifier: ^6.30.0
+        version: 6.30.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
       remix-auth:
         specifier: ^3.7.0
         version: 3.7.0(@remix-run/react@2.16.5(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)(typescript@5.8.2))(@remix-run/server-runtime@2.16.5(typescript@5.8.2))
@@ -491,9 +497,6 @@ importers:
       playwright:
         specifier: ^1.50.1
         version: 1.50.1
-      react-router-dom:
-        specifier: ^6.30.0
-        version: 6.30.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
       react-test-renderer:
         specifier: 18.3.0-canary-14898b6a9-20240318
         version: 18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318)
@@ -10634,7 +10637,7 @@ snapshots:
       '@babel/traverse': 7.27.0
       '@babel/types': 7.27.0
       convert-source-map: 2.0.0
-      debug: 4.4.0
+      debug: 4.4.3
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -10874,7 +10877,7 @@ snapshots:
       '@babel/parser': 7.27.0
       '@babel/template': 7.27.0
       '@babel/types': 7.27.0
-      debug: 4.4.0
+      debug: 4.4.3
       globals: 11.12.0
     transitivePeerDependencies:
       - supports-color
@@ -14723,7 +14726,7 @@ snapshots:
 
   compressible@2.0.18:
     dependencies:
-      mime-db: 1.52.0
+      mime-db: 1.54.0
 
   compression@1.7.4:
     dependencies:
@@ -16027,7 +16030,7 @@ snapshots:
   istanbul-lib-source-maps@5.0.6:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.25
-      debug: 4.4.0
+      debug: 4.4.3
       istanbul-lib-coverage: 3.2.2
     transitivePeerDependencies:
       - supports-color
@@ -18687,7 +18690,7 @@ snapshots:
   vite-node@3.0.0-beta.2(@types/node@22.13.10)(jiti@2.4.2)(tsx@4.19.3):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.0
+      debug: 4.4.3
       es-module-lexer: 1.6.0
       pathe: 1.1.2
       vite: 6.3.4(@types/node@22.13.10)(jiti@2.4.2)(tsx@4.19.3)
@@ -18708,7 +18711,7 @@ snapshots:
   vite-node@3.1.2(@types/node@22.13.10)(jiti@2.4.2)(tsx@4.19.3):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.0
+      debug: 4.4.3
       es-module-lexer: 1.6.0
       pathe: 2.0.3
       vite: 6.3.4(@types/node@22.13.10)(jiti@2.4.2)(tsx@4.19.3)
