@@ -70,7 +70,13 @@ This lets pnpm run build scripts that use `rm -rf` on Windows. Requires [Git for
 pnpm install
 ```
 
-**3. Build internal packages** (PowerShell, repo root — first time only, or after pulling upstream changes):
+**3. After pulling upstream changes** — upstream's `pnpm-lock.yaml` may not include direct dep specifiers added by this fork (e.g. `compression`). Regenerate the lockfile before building:
+
+```powershell
+pnpm install --no-frozen-lockfile
+```
+
+**4. Build internal packages** (PowerShell, repo root — first time only, or after pulling upstream changes):
 
 ```powershell
 pnpm -r --filter='./packages/**' build
