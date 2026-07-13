@@ -6,7 +6,7 @@ import {
   loadBuildById,
   loadDevBuildByProjectId,
 } from "@webstudio-is/project-build/index.server";
-import { buildPatchTransaction } from "@webstudio-is/protocol";
+import { buildPatchTransaction } from "@webstudio-is/protocol/schema";
 import type { AppContext } from "@webstudio-is/trpc-interface/index.server";
 import { serializePages } from "@webstudio-is/project-migrations/pages";
 import { assertApiProjectPermit } from "./api-permits.server";
@@ -58,6 +58,7 @@ const buildInclude = z.enum([
   "resources",
   "variables",
   "breakpoints",
+  "projectSettings",
   "marketplaceProduct",
 ]);
 
@@ -100,13 +101,13 @@ export const createBuildSnapshot = ({
     snapshot.homePageId = pages.homePageId;
     snapshot.rootFolderId = pages.rootFolderId;
     if (include.has("pages")) {
-      snapshot.meta = pages.meta;
-      snapshot.compiler = pages.compiler;
       snapshot.redirects = pages.redirects;
+      snapshot.pageTemplates = pages.pageTemplates;
     }
     add("pages", pages.pages);
     add("folders", pages.folders);
   }
+  add("projectSettings", build.projectSettings);
   add("instances", build.instances);
   add("props", build.props);
   add("styles", build.styles);

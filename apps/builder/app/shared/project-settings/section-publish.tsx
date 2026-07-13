@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useStore } from "@nanostores/react";
 import {
   Grid,
   Label,
@@ -7,10 +7,10 @@ import {
   Text,
 } from "@webstudio-is/design-system";
 import type { CompilerSettings } from "@webstudio-is/sdk";
-import { $pages } from "~/shared/sync/data-stores";
+import { $projectSettings } from "~/shared/sync/data-stores";
 import { useIds } from "~/shared/form-utils";
-import { serverSyncStore } from "~/shared/sync/sync-stores";
 import { sectionSpacing } from "./utils";
+import { executeRuntimeMutation } from "~/shared/instance-utils/data";
 
 const defaultPublishSettings: CompilerSettings = {
   atomicStyles: true,
@@ -18,16 +18,13 @@ const defaultPublishSettings: CompilerSettings = {
 
 export const SectionPublish = () => {
   const ids = useIds(["atomicStyles"]);
-  const [settings, setSettings] = useState(
-    () => $pages.get()?.compiler ?? defaultPublishSettings
-  );
+  const settings =
+    useStore($projectSettings)?.compiler ?? defaultPublishSettings;
 
   const handleSave = (settings: CompilerSettings) => {
-    serverSyncStore.createTransaction([$pages], (pages) => {
-      if (pages === undefined) {
-        return;
-      }
-      pages.compiler = settings;
+    executeRuntimeMutation({
+      id: "projectSettings.update",
+      input: { compiler: settings },
     });
   };
 
@@ -44,7 +41,6 @@ export const SectionPublish = () => {
             onCheckedChange={(atomicStyles) => {
               if (typeof atomicStyles === "boolean") {
                 const nextSettings = { ...settings, atomicStyles };
-                setSettings(nextSettings);
                 handleSave(nextSettings);
               }
             }}

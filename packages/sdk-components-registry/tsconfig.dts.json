@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src", "../../@types/**/*.d.ts"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"],
+  "compilerOptions": {
+    "declarationDir": "lib/types",
+    "rootDir": "./src"
+  }
+}

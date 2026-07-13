@@ -1,5 +1,6 @@
 import {
   publicApiOperations,
+  type InputJsonSchema,
   type PublicApiOperationMethod,
   type PublicApiOperationPermit,
 } from "@webstudio-is/protocol";
@@ -14,6 +15,11 @@ type ApiCommandMetadata = {
   description: string;
   method: PublicApiOperationMethod;
   permit: PublicApiOperationPermit;
+  inputFields: readonly string[];
+  requiredInputFields: readonly string[];
+  inputFieldTypes: Partial<Record<string, "array">>;
+  inputSchema: InputJsonSchema;
+  outputSchema?: InputJsonSchema;
   requiredOptions?: readonly string[];
   examples: readonly string[];
 };
@@ -68,15 +74,16 @@ export const topLevelCliCommandMetadata = [
   {
     command: "preview",
     description:
-      "Regenerate project files and run the generated project dev server for visual verification; dependencies must already be installed",
-    examples: ["webstudio preview --template ssg --port 5173"],
+      "Regenerate project files, build them, and run the generated project production preview server for visual verification; dependencies must already be installed",
+    examples: ["webstudio preview --port 5173"],
   },
   {
     command: "screenshot",
     description:
-      "Capture a PNG screenshot of a URL with an installed Chromium-family browser",
+      "Capture a PNG screenshot of an absolute URL or a generated project route with an installed Chromium-family browser",
     examples: [
       'webstudio screenshot "https://example.com" --output current.png --width 1440 --height 900',
+      "webstudio screenshot --path /pricing --output pricing.png",
     ],
   },
   {
@@ -88,13 +95,16 @@ export const topLevelCliCommandMetadata = [
   ...cliCommandGroupMetadata,
   {
     command: "schema",
-    description: "Print machine-readable API command and patch schemas",
-    examples: ["webstudio schema api --json"],
+    description: "Print machine-readable CLI API or MCP tool schemas",
+    examples: ["webstudio schema api", "webstudio schema mcp"],
   },
   {
     command: "man",
-    description: "Print human and LLM manuals for CLI/API/MCP workflows",
+    description:
+      "Print the complete human and LLM manual for CLI/API/MCP workflows, or a focused manual topic",
     examples: [
+      "webstudio man",
+      "webstudio man --json",
       "webstudio man api",
       "webstudio man llm --json",
       "webstudio man mcp",
@@ -102,14 +112,21 @@ export const topLevelCliCommandMetadata = [
   },
   {
     command: "mcp",
-    description: "Run an MCP server over stdio for the configured project",
-    examples: ["webstudio mcp"],
+    description:
+      "Run an MCP server over stdio, or call one MCP tool as a bounded shell command",
+    examples: [
+      "webstudio mcp",
+      "webstudio mcp single-op-call meta.index",
+      'webstudio mcp single-op-call components.list \'{"source":"all"}\'',
+      'webstudio mcp single-op-call components.search \'{"brief":"radix select"}\'',
+    ],
   },
 ] as const;
 
 const apiCommandOptionsByCommand: Partial<
   Record<ApiCommandName, ApiCommandOptions>
 > = {
+  audit: apiCommand.auditCommandOptions,
   snapshot: apiCommand.snapshotCommandOptions,
   "apply-patch": apiCommand.applyPatchCommandOptions,
   "list-pages": apiCommand.pagesCommandOptions,
@@ -119,10 +136,14 @@ const apiCommandOptionsByCommand: Partial<
   "update-page": apiCommand.updatePageCommandOptions,
   "get-project-settings": apiCommand.projectSettingsCommandOptions,
   "update-project-settings": apiCommand.updateProjectSettingsCommandOptions,
+  "get-marketplace-product": apiCommand.projectSettingsCommandOptions,
+  "update-marketplace-product":
+    apiCommand.updateMarketplaceProductCommandOptions,
   "list-redirects": apiCommand.projectSettingsCommandOptions,
   "create-redirect": apiCommand.createRedirectCommandOptions,
   "update-redirect": apiCommand.updateRedirectCommandOptions,
   "delete-redirect": apiCommand.deleteRedirectCommandOptions,
+  "set-redirects": apiCommand.setRedirectsCommandOptions,
   "list-breakpoints": apiCommand.breakpointCommandOptions,
   "create-breakpoint": apiCommand.createBreakpointCommandOptions,
   "update-breakpoint": apiCommand.updateBreakpointCommandOptions,
@@ -130,6 +151,11 @@ const apiCommandOptionsByCommand: Partial<
   "delete-page": apiCommand.deletePageCommandOptions,
   "duplicate-page": apiCommand.duplicatePageCommandOptions,
   "list-page-templates": apiCommand.listPageTemplatesCommandOptions,
+  "create-page-template": apiCommand.createPageTemplateCommandOptions,
+  "update-page-template": apiCommand.updatePageTemplateCommandOptions,
+  "delete-page-template": apiCommand.deletePageTemplateCommandOptions,
+  "duplicate-page-template": apiCommand.duplicatePageTemplateCommandOptions,
+  "reorder-page-template": apiCommand.reorderPageTemplateCommandOptions,
   "create-page-from-template": apiCommand.createPageFromTemplateCommandOptions,
   "list-folders": apiCommand.foldersCommandOptions,
   "create-folder": apiCommand.createFolderCommandOptions,
@@ -137,7 +163,7 @@ const apiCommandOptionsByCommand: Partial<
   "delete-folder": apiCommand.deleteFolderCommandOptions,
   "list-instances": apiCommand.instanceListCommandOptions,
   "inspect-instance": apiCommand.instanceInspectCommandOptions,
-  "append-instance": apiCommand.appendInstanceCommandOptions,
+  "insert-component": apiCommand.insertComponentCommandOptions,
   "move-instance": apiCommand.moveInstanceCommandOptions,
   "clone-instance": apiCommand.cloneInstanceCommandOptions,
   "delete-instance": apiCommand.deleteInstanceCommandOptions,
@@ -179,6 +205,7 @@ const apiCommandOptionsByCommand: Partial<
   "delete-domain": apiCommand.deleteDomainCommandOptions,
   "verify-domain": apiCommand.verifyDomainCommandOptions,
   "list-assets": apiCommand.assetsCommandOptions,
+  "list-fonts": apiCommand.fontsCommandOptions,
   "upload-asset": apiCommand.uploadAssetCommandOptions,
   "upload-assets": apiCommand.uploadAssetsCommandOptions,
   "find-asset-usage": apiCommand.assetCommandOptions,
@@ -191,12 +218,29 @@ export const apiCommandMetadata = publicApiOperations.map((operation) => ({
   description: operation.description,
   method: operation.method,
   permit: operation.permit,
+  inputFields: operation.inputFields,
+  requiredInputFields: operation.requiredInputFields,
+  inputFieldTypes: operation.inputFieldTypes,
+  inputSchema: operation.inputSchema,
+  ...(operation.outputSchema === undefined
+    ? {}
+    : { outputSchema: operation.outputSchema }),
   requiredOptions: operation.requiredOptions,
   examples: operation.examples,
 })) satisfies ApiCommandMetadata[];
 
 export const highLevelCliCommands = [
+  { command: "audit", operation: "audit" },
   { command: "permissions", operation: "permissions" },
+  {
+    command: "get-marketplace-product",
+    operation: "get-marketplace-product",
+  },
+  {
+    command: "update-marketplace-product",
+    operation: "update-marketplace-product",
+  },
+  { command: "set-redirects", operation: "set-redirects" },
   { command: "publish deploy", operation: "publish" },
   { command: "publish list", operation: "list-publishes" },
   { command: "publish status", operation: "get-publish-job" },
@@ -228,9 +272,13 @@ const highLevelCliCommandSet = new Set<string>(
   highLevelCliCommands.map(({ command }) => command)
 );
 
-export const cliApiCommandMetadata = apiCommandMetadata.filter((metadata) =>
-  highLevelApiCommandSet.has(metadata.command)
-);
+export const cliApiCommandMetadata = highLevelApiCommands.map((command) => {
+  const metadata = apiCommandMetadata.find((item) => item.command === command);
+  if (metadata === undefined) {
+    throw new Error(`Missing API command metadata for "${command}".`);
+  }
+  return metadata;
+});
 
 export const cliCommandMetadata = highLevelCliCommands.map(
   ({ command, operation }) => {

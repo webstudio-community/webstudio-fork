@@ -18,11 +18,12 @@ import { $instances } from "~/shared/sync/data-stores";
 import { $ephemeralStyles } from "~/canvas/stores";
 import { emitCommand } from "./shared/commands";
 import { shallowEqual } from "shallow-equal";
-import { findClosestRichText } from "~/shared/content-model";
+import { findClosestRichText } from "@webstudio-is/project-build/runtime/content-model";
 import {
   areInstanceSelectorsEqual,
   type InstanceSelector,
-} from "~/shared/instance-utils/tree";
+} from "@webstudio-is/project-build/runtime/tree";
+import { isTextEditableInContentMode } from "./shared/content-mode";
 
 type SelectionAnchor = {
   current: undefined | InstanceSelector;
@@ -147,6 +148,17 @@ const handleEdit = (
     );
 
     if (hasExpressionChildren) {
+      editableInstanceSelector = undefined;
+    }
+
+    if (
+      editableInstanceSelector !== undefined &&
+      isTextEditableInContentMode({
+        isContentMode: true,
+        instanceSelector: editableInstanceSelector,
+        instances,
+      }) === false
+    ) {
       editableInstanceSelector = undefined;
     }
   }

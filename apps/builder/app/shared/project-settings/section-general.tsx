@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { useId, useState, useEffect } from "react";
 import { useStore } from "@nanostores/react";
 import {
@@ -13,21 +12,22 @@ import {
   Flex,
   Tooltip,
   InputErrorsTooltip,
-  ProBadge,
+  ProChip,
   TextArea,
   IconButton,
 } from "@webstudio-is/design-system";
 import { CopyIcon, InfoCircleIcon } from "@webstudio-is/icons";
 import { Image, wsImageLoader } from "@webstudio-is/image";
 import type { ProjectMeta } from "@webstudio-is/sdk";
+import { validateContactEmail } from "@webstudio-is/project-build/runtime/project-settings";
 import { ImageControl } from "./image-control";
 import { $assets, $project } from "~/shared/sync/data-stores";
 import { $permissions } from "~/shared/nano-states";
-import { $pages } from "~/shared/sync/data-stores";
-import { serverSyncStore } from "~/shared/sync/sync-stores";
+import { $projectSettings } from "~/shared/sync/data-stores";
 import { sectionSpacing } from "./utils";
 import { CodeEditor } from "~/shared/code-editor";
 import { CopyToClipboard } from "~/shared/copy-to-clipboard";
+import { executeRuntimeMutation } from "~/shared/instance-utils/data";
 
 const imgStyle = css({
   objectFit: "contain",
@@ -46,61 +46,34 @@ const defaultMetaSettings: ProjectMeta = {
   code: "",
 };
 
-const emailAddress = z.string().email();
-
-const validateContactEmail = (
-  contactEmail: string,
-  maxContactEmailsPerProject: number
-) => {
-  contactEmail = contactEmail.trim();
-  if (contactEmail.length === 0) {
-    return;
-  }
-  const emails = contactEmail.split(/\s*,\s*/);
-  if (emails.length > maxContactEmailsPerProject) {
-    if (maxContactEmailsPerProject === 0) {
-      return `Upgrade to PRO to customize the contact email.`;
-    }
-    return `Only ${maxContactEmailsPerProject} emails are allowed.`;
-  }
-  if (
-    emails.every((email) => emailAddress.safeParse(email).success) === false
-  ) {
-    return "Contact email is invalid.";
-  }
-};
-
 const saveSetting = <Name extends keyof ProjectMeta>(
   name: keyof ProjectMeta,
   value: ProjectMeta[Name]
 ) => {
-  serverSyncStore.createTransaction([$pages], (pages) => {
-    if (pages === undefined) {
-      return;
-    }
-    if (pages.meta === undefined) {
-      pages.meta = {};
-    }
-    pages.meta[name] = value;
+  executeRuntimeMutation({
+    id: "projectSettings.update",
+    input: { meta: { [name]: value } },
   });
 };
 
 export const SectionGeneral = ({ projectId }: { projectId?: string }) => {
   const { maxContactEmailsPerProject } = useStore($permissions);
   const allowContactEmail = maxContactEmailsPerProject > 0;
-  const pages = useStore($pages);
+  const projectSettings = useStore($projectSettings);
   const project = useStore($project);
   const assets = useStore($assets);
-  const [meta, setMeta] = useState(() => pages?.meta ?? defaultMetaSettings);
+  const [meta, setMeta] = useState(
+    () => projectSettings?.meta ?? defaultMetaSettings
+  );
   const siteNameId = useId();
   const contactEmailId = useId();
 
-  // Update meta when pages data loads (important for dashboard mode)
+  // Update meta when project settings load (important for dashboard mode)
   useEffect(() => {
-    if (pages?.meta) {
-      setMeta(pages.meta);
+    if (projectSettings?.meta) {
+      setMeta(projectSettings.meta);
     }
-  }, [pages?.meta]);
+  }, [projectSettings?.meta]);
 
   const contactEmailError = validateContactEmail(
     meta.contactEmail ?? "",
@@ -169,7 +142,7 @@ export const SectionGeneral = ({ projectId }: { projectId?: string }) => {
           >
             <InfoCircleIcon tabIndex={0} />
           </Tooltip>
-          {allowContactEmail === false && <ProBadge>Pro</ProBadge>}
+          {allowContactEmail === false && <ProChip>Pro</ProChip>}
         </Flex>
         <InputErrorsTooltip
           errors={contactEmailError ? [contactEmailError] : undefined}

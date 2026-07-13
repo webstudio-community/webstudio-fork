@@ -2,12 +2,12 @@ import {
   getPublicApiOperation,
   type PublicApiCommand,
 } from "@webstudio-is/protocol";
-import {
-  runtimeOperationContracts,
-  type RuntimeOperationId,
-} from "@webstudio-is/project-build/contracts/builder-runtime";
+import type { RuntimeOperationId } from "@webstudio-is/project-build/contracts/builder-runtime";
 import type { BuilderNamespace } from "@webstudio-is/project-build/contracts/namespaces";
-import type { ProjectSessionEnvelope } from "@webstudio-is/project-build/project-session";
+import {
+  serializeProjectSessionMeta,
+  type ProjectSessionEnvelope,
+} from "@webstudio-is/project-build/project-session";
 import { createCliProjectSession } from "./project-session";
 
 export type ProjectSessionApiConnection = {
@@ -24,23 +24,6 @@ type CreateProjectSession = typeof createCliProjectSession;
 const uniqueNamespaces = (
   namespaces: readonly BuilderNamespace[]
 ): readonly BuilderNamespace[] => [...new Set(namespaces)];
-
-const runtimeOperationIds = new Set<string>(
-  runtimeOperationContracts.map((contract) => contract.id)
-);
-
-const isRuntimeOperationId = (id: string): id is RuntimeOperationId =>
-  runtimeOperationIds.has(id);
-
-const getRuntimeOperationId = (
-  command: ProjectSessionApiCommand
-): RuntimeOperationId | undefined => {
-  const operation = getPublicApiOperation(command);
-  return operation.runtimeOperationId !== undefined &&
-    isRuntimeOperationId(operation.runtimeOperationId)
-    ? operation.runtimeOperationId
-    : undefined;
-};
 
 const getSessionError = (envelope: {
   diagnostics: readonly { level: string; code?: string; message: string }[];
@@ -79,17 +62,7 @@ export const isProjectSessionEnvelope = (
   "namespaces" in value &&
   "diagnostics" in value;
 
-export const getProjectSessionMeta = (envelope: ProjectSessionEnvelope) => ({
-  operationId: envelope.operationId,
-  projectId: envelope.projectId,
-  buildId: envelope.buildId,
-  version: envelope.version,
-  source: envelope.source,
-  committed: envelope.state.committed,
-  compatibility: envelope.state.compatibility,
-  namespaces: envelope.namespaces,
-  diagnostics: envelope.diagnostics,
-});
+export const getProjectSessionMeta = serializeProjectSessionMeta;
 
 export const executeProjectSessionApiOperation = async ({
   command,
@@ -106,13 +79,17 @@ export const executeProjectSessionApiOperation = async ({
   dryRun?: boolean;
   refresh?: boolean;
 }) => {
-  const runtimeOperationId = getRuntimeOperationId(command);
   const operation = getPublicApiOperation(command);
+  const runtimeOperationId = operation.runtimeOperationId as
+    | RuntimeOperationId
+    | undefined;
   if (
     dryRun === true &&
     (runtimeOperationId === undefined || operation.method !== "mutation")
   ) {
-    throw new Error(`${command} does not support --dry-run.`);
+    throw new Error(
+      `${command} does not support --dry-run. Use --dry-run only with local-capable mutation tools; omit it for read or server-only tools.`
+    );
   }
   const session = createProjectSession({ connection });
   await session.initialize();
@@ -138,7 +115,9 @@ export const executeProjectSessionApiOperation = async ({
       : operation.method === "query"
         ? await session.read(
             runtimeOperationId,
-            withProjectId(input, connection.projectId),
+            command === "audit"
+              ? input
+              : withProjectId(input, connection.projectId),
             { permit: operation.permit }
           )
         : await session.mutate(

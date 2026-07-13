@@ -12,9 +12,11 @@ import {
   handlePastePage,
 } from "./plugin-page";
 import { html } from "./plugin-html";
+import { jsx } from "./plugin-jsx";
 import { markdown } from "./plugin-markdown";
 import { webflow } from "./plugin-webflow/plugin-webflow";
 import { builderApi } from "../builder-api";
+import { readClipboardText } from "../clipboard";
 
 const isTextEditing = (event: ClipboardEvent) => {
   // Text is edited on the Canvas using the default Canvas text editor settings.
@@ -79,7 +81,31 @@ export type Plugin = {
   mimeType: string;
   onCopy?: () => undefined | string;
   onCut?: () => undefined | string;
-  onPaste?: (data: string) => boolean | Promise<boolean>;
+  onPaste?: (data: string) => PasteResult | Promise<PasteResult>;
+};
+
+export type PasteResult =
+  | { success: true; data: { handled: false } }
+  | { success: true; data: { handled: true } }
+  | { success: false; error: string };
+
+export const pasteIgnored: PasteResult = {
+  success: true,
+  data: { handled: false },
+};
+
+export const pasteHandled: PasteResult = {
+  success: true,
+  data: { handled: true },
+};
+
+const isPasteHandled = (result: PasteResult) =>
+  result.success === false || result.data.handled;
+
+const reportPasteResult = (result: PasteResult) => {
+  if (result.success === false) {
+    builderApi.toast.error(result.error);
+  }
 };
 
 const initPlugins = ({
@@ -125,12 +151,19 @@ const initPlugins = ({
     if (validateClipboardEvent(event) === false) {
       return;
     }
+    event.preventDefault();
 
     for (const { mimeType, onPaste } of plugins) {
-      // this shouldn't matter, but just in case
-      event.preventDefault();
+      if (onPaste === undefined) {
+        continue;
+      }
       const data = event.clipboardData?.getData(mimeType).trim();
-      if (data && (await onPaste?.(data))) {
+      if (data === undefined || data === "") {
+        continue;
+      }
+      const result = await onPaste(data);
+      if (isPasteHandled(result)) {
+        reportPasteResult(result);
         break;
       }
     }
@@ -145,7 +178,15 @@ const initPlugins = ({
 
 export const initCopyPaste = ({ signal }: { signal: AbortSignal }) => {
   initPlugins({
-    plugins: [pageText, instanceJson, instanceText, html, markdown, webflow],
+    plugins: [
+      pageText,
+      instanceJson,
+      instanceText,
+      jsx,
+      html,
+      markdown,
+      webflow,
+    ],
     signal,
   });
 };
@@ -187,7 +228,9 @@ export const initCopyPasteForContentEditMode = ({
     const jsonData = event.clipboardData?.getData(instanceJson.mimeType).trim();
     if (jsonData) {
       event.preventDefault();
-      if (await instanceJson.onPaste?.(jsonData)) {
+      const result = await instanceJson.onPaste(jsonData);
+      if (isPasteHandled(result)) {
+        reportPasteResult(result);
         return;
       }
       showUnsupportedPasteMessage();
@@ -196,7 +239,9 @@ export const initCopyPasteForContentEditMode = ({
     const textData = event.clipboardData?.getData(instanceText.mimeType).trim();
     if (textData) {
       event.preventDefault();
-      if (await instanceText.onPaste?.(textData)) {
+      const result = await instanceText.onPaste(textData);
+      if (isPasteHandled(result)) {
+        reportPasteResult(result);
         return;
       }
       showUnsupportedPasteMessage();
@@ -247,12 +292,20 @@ export const copyTemplate = (templateId: string) => {
 };
 
 export const pastePage = async (targetFolderId?: string) => {
-  const text = await navigator.clipboard.readText();
-  return handlePastePage(text, targetFolderId);
+  const text = await readClipboardText();
+  if (text === undefined) {
+    return false;
+  }
+  const result = await handlePastePage(text, targetFolderId);
+  reportPasteResult(result);
+  return isPasteHandled(result);
 };
 
 export const emitPaste = async () => {
-  const text = await navigator.clipboard.readText();
+  const text = await readClipboardText();
+  if (text === undefined) {
+    return;
+  }
 
   // Create and dispatch a paste event to go through the normal handlePaste flow
   const dataTransfer = new DataTransfer();

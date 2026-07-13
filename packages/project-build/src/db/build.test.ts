@@ -13,6 +13,7 @@ import {
   loadBuildById,
   loadDevBuildByProjectId,
   createBuild,
+  createProductionBuild,
   unpublishBuild,
   __testing__,
 } from "./build";
@@ -70,6 +71,7 @@ const buildRow = {
   ]),
   deployment: null,
   marketplaceProduct: JSON.stringify({}),
+  projectSettings: JSON.stringify({ meta: {}, compiler: {} }),
 };
 
 // ---------------------------------------------------------------------------
@@ -110,6 +112,34 @@ describe("loadBuildById (msw)", () => {
     const result = await loadBuildById(createContext(), "build-1");
     expect(result.id).toBe("build-1");
     expect(result.projectId).toBe("proj-1");
+    expect(result.marketplaceProduct).toBeUndefined();
+  });
+
+  test("migrates project settings from legacy pages", async () => {
+    server.use(
+      db.get("Build", () =>
+        json([
+          {
+            ...buildRow,
+            pages: JSON.stringify({
+              ...JSON.parse(buildRow.pages),
+              meta: { siteName: "Legacy site" },
+              compiler: { atomicStyles: false },
+            }),
+            projectSettings: undefined,
+          },
+        ])
+      )
+    );
+
+    const result = await loadBuildById(createContext(), "build-1");
+
+    expect(result.projectSettings).toEqual({
+      meta: { siteName: "Legacy site" },
+      compiler: { atomicStyles: false },
+    });
+    expect(result.pages.meta).toBeUndefined();
+    expect(result.pages.compiler).toBeUndefined();
   });
 });
 
@@ -160,6 +190,56 @@ describe("createBuild (msw)", () => {
     await expect(
       createBuild({ projectId: "proj-1" }, createContext())
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createProductionBuild
+// ---------------------------------------------------------------------------
+
+describe("createProductionBuild (msw)", () => {
+  test("throws when dev build has orphan resource references", async () => {
+    let didCreateProductionBuild = false;
+    server.use(
+      ownershipHandler,
+      db.get("Build", () =>
+        json([
+          {
+            ...buildRow,
+            dataSources: JSON.stringify([
+              {
+                type: "resource",
+                id: "dataSourceId",
+                name: "pinnedAnnouncementData_1",
+                resourceId: "missingResourceId",
+              },
+            ]),
+          },
+        ])
+      ),
+      db.post("rpc/create_production_build", () => {
+        didCreateProductionBuild = true;
+        return json("build-prod");
+      })
+    );
+
+    await expect(
+      createProductionBuild(
+        {
+          projectId: "proj-1",
+          deployment: {
+            destination: "saas",
+            domains: ["project-domain"],
+            assetsDomain: "project-domain",
+            excludeWstdDomainFromSearch: false,
+          },
+        },
+        createContext()
+      )
+    ).rejects.toThrow(
+      `Cannot publish: resource variable "pinnedAnnouncementData_1" (dataSourceId) references missing resource "missingResourceId".`
+    );
+    expect(didCreateProductionBuild).toBe(false);
   });
 });
 

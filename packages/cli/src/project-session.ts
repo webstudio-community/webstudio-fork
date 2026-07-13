@@ -1,9 +1,17 @@
 import { readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
-import { migratePages } from "@webstudio-is/project-migrations/pages";
+import {
+  migratePages,
+  serializePages,
+} from "@webstudio-is/project-migrations/pages";
 import * as httpClient from "@webstudio-is/http-client";
-import { publicApiOperations } from "@webstudio-is/protocol";
+import {
+  bundleVersion,
+  publicApiOperations,
+  type PublishedProjectBundle,
+} from "@webstudio-is/protocol";
+import { getHomePage } from "@webstudio-is/sdk";
 import {
   createProjectSession,
   createDefaultProjectSessionCompatibility,
@@ -11,6 +19,7 @@ import {
   type ProjectSessionPersistedSnapshot,
   type ProjectSessionPermissions,
   type ProjectSessionRemoteSnapshot,
+  type ProjectSessionSnapshot,
   type ProjectSessionStorage,
   type ProjectSessionTransport,
 } from "@webstudio-is/project-build/project-session";
@@ -22,8 +31,9 @@ import {
   type BuilderBuildDataSnapshot,
   type SerializedBuilderStateSnapshot,
 } from "@webstudio-is/project-build/state/adapters";
+import { removeLegacyProjectSettingsFromPages } from "@webstudio-is/project-build/shared/project-settings";
 import type { BuilderStateFreshness } from "@webstudio-is/project-build/state/freshness";
-import { LOCAL_CONFIG_FILE } from "./config";
+import { LOCAL_CONFIG_FILE, LOCAL_DATA_FILE } from "./config";
 import { getStableErrorCode } from "./error-codes";
 import { writeFileAtomic } from "./fs-utils";
 
@@ -44,10 +54,12 @@ type PublicBuildSnapshot = Omit<
   homePageId?: string;
   rootFolderId?: string;
   pages?: unknown;
+  pageTemplates?: unknown;
   folders?: unknown;
   meta?: unknown;
   compiler?: unknown;
   redirects?: unknown;
+  projectSettings?: BuilderBuildDataSnapshot["projectSettings"];
   dataSources?: BuilderBuildDataSnapshot["dataSources"];
   variables?: BuilderBuildDataSnapshot["dataSources"];
 };
@@ -78,6 +90,9 @@ const toPublicApiInclude = (namespaces: readonly BuilderNamespace[]) => [
       if (namespace === "pages") {
         return ["pages", "folders"];
       }
+      if (namespace === "projectSettings") {
+        return ["projectSettings"];
+      }
       return [namespace];
     })
   ),
@@ -91,6 +106,7 @@ const toPages = (snapshot: PublicBuildSnapshot) => {
     homePageId: snapshot.homePageId,
     rootFolderId: snapshot.rootFolderId,
     pages: snapshot.pages,
+    pageTemplates: snapshot.pageTemplates,
     folders: snapshot.folders,
     meta: snapshot.meta,
     compiler: snapshot.compiler,
@@ -285,15 +301,11 @@ export const createCliProjectSession = ({
   storage = createCliProjectSessionStorage(),
   executeServerOperation,
   getPermissions,
-  createId = () => crypto.randomUUID(),
-  now = () => new Date(),
 }: {
   connection: ApiConnection;
   storage?: ProjectSessionStorage;
   executeServerOperation?: ProjectSessionTransport["executeServerOperation"];
   getPermissions?: ProjectSessionTransport["getPermissions"];
-  createId?: () => string;
-  now?: () => Date;
 }) =>
   createProjectSession({
     projectId: connection.projectId,
@@ -304,7 +316,6 @@ export const createCliProjectSession = ({
     }),
     storage,
     compatibilityVersion,
-    runtimeContext: { createId, now },
   });
 
 export type CliProjectSession = ReturnType<typeof createCliProjectSession>;
@@ -314,4 +325,61 @@ export type CliProjectSessionSnapshot = {
   buildId: string;
   version: number;
   freshness: BuilderStateFreshness;
+};
+
+export const createLocalProjectBundleFromSessionSnapshot = (
+  snapshot: ProjectSessionSnapshot,
+  options: { origin?: string } = {}
+): PublishedProjectBundle => {
+  const pages = snapshot.state.pages;
+  if (pages === undefined) {
+    throw new Error("Project session pages namespace is missing.");
+  }
+  const projectSettings = snapshot.state.projectSettings;
+  const persistedPages = removeLegacyProjectSettingsFromPages(
+    structuredClone(pages)
+  );
+  const serializedPages = serializePages(persistedPages);
+  const homePage = getHomePage(persistedPages);
+  return {
+    bundleVersion,
+    origin: options.origin,
+    projectDomain: "local-preview",
+    projectTitle:
+      projectSettings?.meta.siteName ??
+      persistedPages.meta?.siteName ??
+      "Webstudio Preview",
+    page: homePage,
+    pages: Array.from(persistedPages.pages.values()),
+    assets: Array.from(snapshot.state.assets?.values() ?? []),
+    build: {
+      id: snapshot.buildId,
+      projectId: snapshot.projectId,
+      version: snapshot.version,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      pages: serializedPages,
+      breakpoints: Array.from(snapshot.state.breakpoints?.entries() ?? []),
+      styles: Array.from(snapshot.state.styles?.entries() ?? []),
+      styleSources: Array.from(snapshot.state.styleSources?.entries() ?? []),
+      styleSourceSelections: Array.from(
+        snapshot.state.styleSourceSelections?.entries() ?? []
+      ),
+      props: Array.from(snapshot.state.props?.entries() ?? []),
+      instances: Array.from(snapshot.state.instances?.entries() ?? []),
+      dataSources: Array.from(snapshot.state.dataSources?.entries() ?? []),
+      resources: Array.from(snapshot.state.resources?.entries() ?? []),
+      marketplaceProduct: snapshot.state.marketplaceProduct,
+      projectSettings,
+    },
+  };
+};
+
+export const writeCliProjectSessionDataFile = async (
+  snapshot: ProjectSessionSnapshot,
+  path = join(cwd(), LOCAL_DATA_FILE),
+  options: { origin?: string } = {}
+) => {
+  const data = createLocalProjectBundleFromSessionSnapshot(snapshot, options);
+  await writeFileAtomic(path, `${JSON.stringify(data, undefined, 2)}\n`);
 };

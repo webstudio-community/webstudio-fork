@@ -9,10 +9,13 @@ import {
 
 test("documents generated app setup for visual verification", () => {
   expect(generatedAppDependencyNotes).toEqual([
-    expect.stringContaining("npm install or pnpm install"),
-    expect.stringContaining("react-router or vite"),
+    expect.stringContaining("isolate generated app dependencies"),
+    expect.stringContaining("Do not add generated-preview dependencies"),
+    expect.stringContaining("react-router-serve"),
   ]);
-  expect(visualVerificationRule).toContain("generated app dependencies");
+  expect(visualVerificationRule).toContain(
+    "generated project files are current"
+  );
   expect(screenshotVerificationSummary).toContain("preview.start");
   expect(screenshotVerificationSummary).toContain("list-breakpoints");
   expect(screenshotVerificationSummary).toContain("viewport");
@@ -29,6 +32,12 @@ test("builds vision loop with optional screenshot diff guidance", () => {
   );
   expect(visionLoopWithDiff).toEqual(
     expect.arrayContaining([expect.stringContaining("vision.install-ocr")])
+  );
+  expect(visionLoopWithDiff).toEqual(
+    expect.arrayContaining([expect.stringContaining("expectedText")])
+  );
+  expect(visionLoopWithDiff).toEqual(
+    expect.arrayContaining([expect.stringContaining("expectedVisual")])
   );
   expect(visionLoopWithDiff).toEqual(
     expect.arrayContaining([

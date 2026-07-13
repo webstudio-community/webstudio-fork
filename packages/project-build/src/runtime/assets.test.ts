@@ -15,6 +15,7 @@ import type {
 } from "@webstudio-is/sdk";
 import type { BuilderState } from "../state/builder-state";
 import {
+  addAsset,
   calculateUsagesByAssetId,
   createAssetDeletePayload,
   createAssetReplacementPayload,
@@ -22,10 +23,18 @@ import {
   deleteAssets,
   findAsset,
   findAssetUsage,
+  getAssetInfoFallback,
+  getBrowserAssetFormat,
+  imageDescriptionsSetInput,
   listAssets,
+  formatAssetName,
+  parseAssetName,
+  parseAssetType,
   replaceAsset,
   replaceAssetInStyleValueMutable,
   replaceAssetMutable,
+  setImageDescriptions,
+  updateAsset,
 } from "./assets";
 
 const imageAsset = (id: string, name = `${id}.png`): Asset =>
@@ -81,6 +90,7 @@ const pages: Pages = {
 
 const state = {
   pages,
+  projectSettings: { meta: pages.meta ?? {}, compiler: pages.compiler ?? {} },
   assets: new Map([
     ["asset", imageAsset("asset", "asset.png")],
     ["next", imageAsset("next", "next.png")],
@@ -92,15 +102,192 @@ const state = {
   dataSources: new Map(),
 } satisfies BuilderState;
 
+describe("asset name helpers", () => {
+  test("parses name with hash and extension", () => {
+    expect(parseAssetName("hello_hash.ext")).toEqual({
+      basename: "hello",
+      hash: "hash",
+      ext: "ext",
+    });
+  });
+
+  test("parses name without hash", () => {
+    expect(parseAssetName("hello.ext")).toEqual({
+      basename: "hello",
+      hash: "",
+      ext: "ext",
+    });
+  });
+
+  test("parses name with multiple underscores", () => {
+    expect(parseAssetName("hello_hash1.ext_hash2")).toEqual({
+      basename: "hello",
+      hash: "hash1",
+      ext: "ext_hash2",
+    });
+  });
+
+  test("parses name with hash but no extension", () => {
+    expect(parseAssetName("hello_hash1_hash2")).toEqual({
+      basename: "hello_hash1",
+      hash: "hash2",
+      ext: "",
+    });
+  });
+
+  test("formats asset with filename", () => {
+    expect(
+      formatAssetName({
+        name: "uploaded_abc123.jpg",
+        filename: "myimage",
+      })
+    ).toBe("myimage.jpg");
+  });
+
+  test("formats asset without filename", () => {
+    expect(
+      formatAssetName({
+        name: "uploaded_abc123.jpg",
+        filename: undefined,
+      })
+    ).toBe("uploaded.jpg");
+  });
+
+  test("formats asset with no extension", () => {
+    expect(
+      formatAssetName({
+        name: "uploaded_abc123",
+        filename: "document",
+      })
+    ).toBe("document.");
+  });
+});
+
+describe("asset upload helpers", () => {
+  test("preserves browser asset format detection", () => {
+    expect(
+      getBrowserAssetFormat({
+        contentType: "application/font-woff",
+        name: "font.woff",
+      })
+    ).toBeUndefined();
+    expect(
+      getBrowserAssetFormat({
+        contentType: "application/octet-stream",
+        name: "video.mp4",
+      })
+    ).toBe("mp4");
+    expect(() =>
+      getBrowserAssetFormat({
+        contentType: "script/javascript",
+        name: "script.unknown",
+      })
+    ).toThrow('MIME type "script/*" is not allowed');
+  });
+
+  test("accepts only stored asset types for API uploads", () => {
+    expect(parseAssetType("image")).toBe("image");
+    expect(parseAssetType("font")).toBe("font");
+    expect(parseAssetType("file")).toBe("file");
+    expect(parseAssetType("video")).toBeUndefined();
+    expect(parseAssetType(null)).toBeUndefined();
+  });
+
+  test("uses image metadata fallback only when complete", () => {
+    expect(
+      getAssetInfoFallback({
+        format: "png",
+        searchParams: new URLSearchParams({
+          width: "10",
+          height: "20",
+        }),
+      })
+    ).toEqual({ width: 10, height: 20, format: "png" });
+    expect(
+      getAssetInfoFallback({
+        format: undefined,
+        searchParams: new URLSearchParams({
+          width: "10",
+          height: "20",
+        }),
+      })
+    ).toBeUndefined();
+    expect(
+      getAssetInfoFallback({
+        format: "png",
+        searchParams: new URLSearchParams({
+          width: "10",
+        }),
+      })
+    ).toBeUndefined();
+  });
+});
+
 describe("asset runtime operations", () => {
+  test("adds uploaded assets", () => {
+    const asset = imageAsset("new-asset", "new.png");
+
+    expect(addAsset(state, { asset })).toEqual({
+      kind: "mutation",
+      noop: false,
+      result: { assetId: "new-asset" },
+      invalidatesNamespaces: ["assets"],
+      payload: [
+        {
+          namespace: "assets",
+          patches: [{ op: "add", path: ["new-asset"], value: asset }],
+        },
+      ],
+    });
+  });
+
+  test("rejects adding duplicate assets", () => {
+    expect(() => addAsset(state, { asset: imageAsset("asset") })).toThrow(
+      "Asset already exists"
+    );
+  });
+
   test("lists assets with usage counts", () => {
     expect(listAssets(state, { sort: "usage" })).toMatchObject({
       items: [
-        { id: "asset", usageCount: 1 },
+        { id: "asset", description: null, usageCount: 1 },
         { id: "next", usageCount: 0 },
         { id: "unused", usageCount: 0 },
       ],
       nextCursor: null,
+    });
+  });
+
+  test("lists asset descriptions used as image alt text", () => {
+    const asset = imageAsset("described");
+    asset.description = "Team collaborating around a whiteboard";
+    expect(
+      listAssets({ ...state, assets: new Map([[asset.id, asset]]) })
+    ).toMatchObject({
+      items: [
+        {
+          id: "described",
+          description: "Team collaborating around a whiteboard",
+        },
+      ],
+    });
+  });
+
+  test("lists editable filenames separately from immutable asset names", () => {
+    const asset = imageAsset("renamed");
+    asset.name = "uploaded_hash.png";
+    asset.filename = "campaign-hero.png";
+
+    expect(
+      listAssets({ ...state, assets: new Map([[asset.id, asset]]) })
+    ).toMatchObject({
+      items: [
+        {
+          id: "renamed",
+          name: "uploaded_hash.png",
+          filename: "campaign-hero.png",
+        },
+      ],
     });
   });
 
@@ -227,7 +414,16 @@ describe("asset-info", () => {
       const styles: Styles = new Map();
       const assets = new Map<Asset["id"], Asset>();
 
-      const usages = calculateUsagesByAssetId({ pages, props, styles, assets });
+      const usages = calculateUsagesByAssetId({
+        pages,
+        projectSettings: {
+          meta: { faviconAssetId: "favicon-asset" },
+          compiler: {},
+        },
+        props,
+        styles,
+        assets,
+      });
 
       expect(usages.get("favicon-asset")).toEqual([{ type: "favicon" }]);
     });
@@ -401,7 +597,16 @@ describe("asset-info", () => {
       ]);
       const assets = new Map<Asset["id"], Asset>();
 
-      const usages = calculateUsagesByAssetId({ pages, props, styles, assets });
+      const usages = calculateUsagesByAssetId({
+        pages,
+        projectSettings: {
+          meta: { faviconAssetId: "asset-1" },
+          compiler: {},
+        },
+        props,
+        styles,
+        assets,
+      });
 
       expect(usages.get("asset-1")).toHaveLength(4);
       expect(usages.get("asset-1")).toEqual([
@@ -475,6 +680,51 @@ describe("asset-info", () => {
               type: "fontFamily",
               value: ["CustomFont", "Arial", "sans-serif"],
             },
+          },
+        ],
+      ]);
+      const assets = new Map<Asset["id"], Asset>([
+        [
+          "font-asset-1",
+          {
+            id: "font-asset-1",
+            type: "font",
+            name: "CustomFont",
+            format: "woff2",
+            size: 5000,
+            meta: { family: "CustomFont", style: "normal", weight: 400 },
+            createdAt: "2024-01-01",
+            projectId: "project-id",
+          },
+        ],
+      ]);
+
+      const usages = calculateUsagesByAssetId({ pages, props, styles, assets });
+
+      expect(usages.get("font-asset-1")).toEqual([
+        { type: "style", styleDeclKey: "style-1:breakpoint-1:fontFamily" },
+      ]);
+    });
+
+    test("tracks font asset usage in nested style values", () => {
+      const pages = createPages();
+      const props: Props = new Map();
+      const styles: Styles = new Map([
+        [
+          "style-1:breakpoint-1:fontFamily",
+          {
+            breakpointId: "breakpoint-1",
+            styleSourceId: "style-1",
+            property: "fontFamily",
+            value: {
+              type: "layers",
+              value: [
+                {
+                  type: "fontFamily",
+                  value: ["CustomFont", "sans-serif"],
+                },
+              ],
+            } as unknown as StyleValue,
           },
         ],
       ]);
@@ -656,6 +906,228 @@ test("creates asset delete payload", () => {
   ]);
 });
 
+describe("updateAsset", () => {
+  test("updates filename and description", () => {
+    const result = updateAsset(
+      {
+        assets: new Map([["asset-1", imageAsset("asset-1")]]),
+      },
+      {
+        assetId: "asset-1",
+        values: {
+          filename: "Hero",
+          description: "Product hero",
+        },
+      }
+    );
+
+    expect(result.payload).toEqual([
+      {
+        namespace: "assets",
+        patches: [
+          {
+            op: "add",
+            path: ["asset-1", "filename"],
+            value: "Hero",
+          },
+          {
+            op: "replace",
+            path: ["asset-1", "description"],
+            value: "Product hero",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("does not invalidate assets when values are unchanged", () => {
+    const asset = {
+      ...imageAsset("asset-1"),
+      filename: "Hero",
+      description: "Product hero",
+    };
+    const result = updateAsset(
+      { assets: new Map([[asset.id, asset]]) },
+      {
+        assetId: asset.id,
+        values: { filename: "Hero", description: "Product hero" },
+      }
+    );
+
+    expect(result.payload).toEqual([]);
+    expect(result.invalidatesNamespaces).toEqual([]);
+  });
+
+  test("rejects invalid filename", () => {
+    expect(() =>
+      updateAsset(
+        {
+          assets: new Map([["asset-1", imageAsset("asset-1")]]),
+        },
+        {
+          assetId: "asset-1",
+          values: { filename: "bad/name" },
+        }
+      )
+    ).toThrow("Invalid filename");
+  });
+
+  test("rejects duplicate display filename", () => {
+    expect(() =>
+      updateAsset(
+        {
+          assets: new Map([
+            ["asset-1", imageAsset("asset-1")],
+            ["asset-2", { ...imageAsset("asset-2"), filename: "Hero" }],
+          ]),
+        },
+        {
+          assetId: "asset-1",
+          values: { filename: "Hero" },
+        }
+      )
+    ).toThrow("Filename already used");
+  });
+});
+
+describe("setImageDescriptions", () => {
+  test("strips the internally injected project id", () => {
+    expect(
+      imageDescriptionsSetInput.parse({
+        projectId: "project",
+        updates: [{ assetId: "hero", description: "Dashboard overview" }],
+      })
+    ).toEqual({
+      updates: [{ assetId: "hero", description: "Dashboard overview" }],
+    });
+  });
+
+  test("stores generated descriptions and explicit decorative markers", () => {
+    const result = setImageDescriptions(
+      {
+        assets: new Map([
+          ["hero", imageAsset("hero")],
+          ["texture", imageAsset("texture")],
+        ]),
+      },
+      {
+        updates: [
+          { assetId: "hero", description: "Product dashboard overview" },
+          { assetId: "texture", decorative: true },
+        ],
+      }
+    );
+
+    expect(result.result).toEqual({
+      updated: [
+        { assetId: "hero", decorative: false },
+        { assetId: "texture", decorative: true },
+      ],
+    });
+    expect(result.payload).toEqual([
+      {
+        namespace: "assets",
+        patches: [
+          {
+            op: "replace",
+            path: ["hero", "description"],
+            value: "Product dashboard overview",
+          },
+          {
+            op: "replace",
+            path: ["texture", "description"],
+            value: "",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("reports and invalidates only descriptions that changed", () => {
+    const result = setImageDescriptions(
+      {
+        assets: new Map([
+          [
+            "unchanged",
+            { ...imageAsset("unchanged"), description: "Already described" },
+          ],
+          ["changed", imageAsset("changed")],
+        ]),
+      },
+      {
+        updates: [
+          { assetId: "unchanged", description: "Already described" },
+          { assetId: "changed", description: "New description" },
+        ],
+      }
+    );
+
+    expect(result.result).toEqual({
+      updated: [{ assetId: "changed", decorative: false }],
+    });
+    expect(result.payload).toEqual([
+      {
+        namespace: "assets",
+        patches: [
+          {
+            op: "replace",
+            path: ["changed", "description"],
+            value: "New description",
+          },
+        ],
+      },
+    ]);
+    expect(result.invalidatesNamespaces).toEqual(["assets"]);
+  });
+
+  test("returns a complete no-op when every description is unchanged", () => {
+    const result = setImageDescriptions(
+      {
+        assets: new Map([
+          ["hero", { ...imageAsset("hero"), description: "Hero image" }],
+        ]),
+      },
+      { updates: [{ assetId: "hero", description: "Hero image" }] }
+    );
+
+    expect(result.result).toEqual({ updated: [] });
+    expect(result.payload).toEqual([]);
+    expect(result.invalidatesNamespaces).toEqual([]);
+  });
+
+  test("rejects duplicate, empty, missing, and non-image updates", () => {
+    expect(() =>
+      imageDescriptionsSetInput.parse({
+        updates: [
+          { assetId: "hero", description: "Hero" },
+          { assetId: "hero", decorative: true },
+        ],
+      })
+    ).toThrow();
+    expect(() =>
+      imageDescriptionsSetInput.parse({
+        updates: [{ assetId: "hero", description: "" }],
+      })
+    ).toThrow();
+    expect(() =>
+      setImageDescriptions(
+        { assets: new Map([["hero", imageAsset("hero")]]) },
+        { updates: [{ assetId: "missing", description: "Missing" }] }
+      )
+    ).toThrow('Image asset "missing" not found');
+    expect(() =>
+      setImageDescriptions(
+        {
+          assets: new Map([
+            ["font", { ...imageAsset("font"), type: "font" } as Asset],
+          ]),
+        },
+        { updates: [{ assetId: "font", description: "Font" }] }
+      )
+    ).toThrow('Asset "font" is not an image');
+  });
+});
+
 test("creates asset usage list from project, pages, props, styles, and resources", () => {
   const asset = createAsset("asset-1");
   const fontAsset: Asset = {
@@ -666,8 +1138,11 @@ test("creates asset usage list from project, pages, props, styles, and resources
     meta: { family: "Inter", style: "normal", weight: 400 },
   };
   const build = {
-    pages: {
+    projectSettings: {
       meta: { faviconAssetId: asset.id },
+      compiler: {},
+    },
+    pages: {
       homePage: { id: "page-1" },
       pages: new Map([
         [
@@ -914,7 +1389,10 @@ describe("replaceAssetInStyleValue", () => {
 
   test("replaces asset references in pages props and styles", () => {
     const pages = createDefaultPages({ rootInstanceId: "root" });
-    pages.meta = { faviconAssetId: "old-id" };
+    const projectSettings = {
+      meta: { faviconAssetId: "old-id" },
+      compiler: {},
+    };
     const homePage = pages.pages.get(pages.homePageId);
     if (homePage === undefined) {
       throw new Error("Expected home page");
@@ -940,12 +1418,13 @@ describe("replaceAssetInStyleValue", () => {
 
     replaceAssetMutable({
       pages,
+      projectSettings,
       props: [prop],
       styles: [style],
       replacement: { fromAssetId: "old-id", toAssetId: "new-id" },
     });
 
-    expect(pages.meta.faviconAssetId).toBe("new-id");
+    expect(projectSettings.meta.faviconAssetId).toBe("new-id");
     expect(homePage.meta.socialImageAssetId).toBe("new-id");
     expect(homePage.marketplace.thumbnailAssetId).toBe("new-id");
     expect(prop.value).toBe("new-id");
@@ -957,7 +1436,10 @@ describe("replaceAssetInStyleValue", () => {
 
   test("creates asset replacement payload", () => {
     const pages = createDefaultPages({ rootInstanceId: "root" });
-    pages.meta = { faviconAssetId: "old-id" };
+    const projectSettings = {
+      meta: { faviconAssetId: "old-id" },
+      compiler: {},
+    };
     const homePage = pages.pages.get(pages.homePageId);
     if (homePage === undefined) {
       throw new Error("Expected home page");
@@ -968,6 +1450,7 @@ describe("replaceAssetInStyleValue", () => {
       createAssetReplacementPayload({
         build: {
           pages,
+          projectSettings,
           props: [
             {
               id: "prop",
@@ -1000,13 +1483,18 @@ describe("replaceAssetInStyleValue", () => {
       })
     ).toEqual([
       {
-        namespace: "pages",
+        namespace: "projectSettings",
         patches: [
           {
             op: "replace",
             path: ["meta", "faviconAssetId"],
             value: "new-id",
           },
+        ],
+      },
+      {
+        namespace: "pages",
+        patches: [
           {
             op: "replace",
             path: ["pages", pages.homePageId, "meta", "socialImageAssetId"],
@@ -1051,6 +1539,74 @@ describe("replaceAssetInStyleValue", () => {
       {
         namespace: "assets",
         patches: [{ op: "remove", path: ["old-id"] }],
+      },
+    ]);
+  });
+
+  test("preserves replaced asset description on the new asset", () => {
+    const pages = createDefaultPages({ rootInstanceId: "root" });
+
+    expect(
+      createAssetReplacementPayload({
+        build: {
+          pages,
+          projectSettings: { meta: {}, compiler: {} },
+          props: [],
+          styles: [],
+        } as never,
+        fromAsset: {
+          id: "old-id",
+          type: "image",
+          description: "Original description",
+        } as never,
+        toAsset: {
+          id: "new-id",
+          type: "image",
+        } as never,
+      })
+    ).toEqual([
+      {
+        namespace: "assets",
+        patches: [
+          {
+            op: "add",
+            path: ["new-id", "description"],
+            value: "Original description",
+          },
+          { op: "remove", path: ["old-id"] },
+        ],
+      },
+    ]);
+  });
+
+  test("removes new asset description when replaced asset has none", () => {
+    const pages = createDefaultPages({ rootInstanceId: "root" });
+
+    expect(
+      createAssetReplacementPayload({
+        build: {
+          pages,
+          projectSettings: { meta: {}, compiler: {} },
+          props: [],
+          styles: [],
+        } as never,
+        fromAsset: {
+          id: "old-id",
+          type: "image",
+        } as never,
+        toAsset: {
+          id: "new-id",
+          type: "image",
+          description: "Uploaded description",
+        } as never,
+      })
+    ).toEqual([
+      {
+        namespace: "assets",
+        patches: [
+          { op: "remove", path: ["new-id", "description"] },
+          { op: "remove", path: ["old-id"] },
+        ],
       },
     ]);
   });

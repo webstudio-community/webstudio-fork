@@ -15,9 +15,15 @@ import {
   Box,
 } from "@webstudio-is/design-system";
 import type { Asset } from "@webstudio-is/sdk";
-import { $assets, $pages, $props, $styles } from "~/shared/sync/data-stores";
+import {
+  $assets,
+  $pages,
+  $projectSettings,
+  $props,
+  $styles,
+} from "~/shared/sync/data-stores";
 import { deleteAssets } from "~/builder/shared/assets";
-import { formatAssetName } from "~/builder/shared/assets/asset-utils";
+import { formatAssetName } from "@webstudio-is/project-build/runtime/assets";
 import { calculateUsagesByAssetId } from "@webstudio-is/project-build/runtime/assets";
 
 const $isDeleteUnusedAssetsDialogOpen = atom(false);
@@ -30,6 +36,7 @@ const getUnusedAssets = () => {
   const assets = $assets.get();
   const usagesByAssetId = calculateUsagesByAssetId({
     pages: $pages.get(),
+    projectSettings: $projectSettings.get(),
     props: $props.get(),
     styles: $styles.get(),
     assets,

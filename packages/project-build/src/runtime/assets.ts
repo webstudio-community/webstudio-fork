@@ -1,9 +1,12 @@
 import type { StyleValue } from "@webstudio-is/css-engine";
 import deepEqual from "fast-deep-equal";
+import isValidFilename from "valid-filename";
 import { z } from "zod";
 import {
+  ALLOWED_FILE_TYPES,
   getAllPages,
   getStyleDeclKey,
+  isAllowedMimeCategory,
   type Asset,
   type DataSource,
   type Pages,
@@ -12,12 +15,19 @@ import {
   type Resource,
   type StyleDecl,
   type Styles,
+  asset as assetSchema,
+  assetType,
 } from "@webstudio-is/sdk";
 import type { BuilderPatchChange } from "../contracts/patch";
 import type { BuilderState } from "../state/builder-state";
 import type { CompactBuild } from "../types";
+import type { ProjectSettings } from "../shared/project-settings";
 import { throwBuilderRuntimeError } from "./errors";
 import { createRuntimeMutation } from "./mutation";
+import {
+  collectFontFamiliesFromStyleValue,
+  traverseStyleValue,
+} from "./style-utils";
 
 export type AssetUsage =
   | { type: "favicon" }
@@ -43,16 +53,123 @@ export const assetDeleteInput = z.object({
   force: z.boolean().optional(),
 });
 
-const traverseAssetStyleValue = (
-  value: StyleValue,
-  callback: (value: StyleValue) => void
-) => {
-  callback(value);
-  if (value.type === "tuple" || value.type === "layers") {
-    for (const item of value.value) {
-      traverseAssetStyleValue(item, callback);
-    }
+export const assetUpdateInput = z.object({
+  assetId: z.string(),
+  values: z
+    .object({
+      filename: z
+        .string()
+        .describe(
+          "Editable display filename. This does not change the immutable uploaded asset name; list-assets returns both name and filename."
+        )
+        .optional(),
+      description: z.union([z.string(), z.null()]).optional(),
+    })
+    .refine((values) => Object.keys(values).length > 0, {
+      message: "At least one asset field is required",
+    }),
+});
+
+const imageDescriptionUpdate = z.union([
+  z
+    .object({
+      assetId: z.string(),
+      description: z
+        .string()
+        .trim()
+        .min(1)
+        .describe(
+          "Concise alt description generated after inspecting the rendered image in context."
+        ),
+      decorative: z.literal(false).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      assetId: z.string(),
+      decorative: z
+        .literal(true)
+        .describe(
+          "Mark the image decorative and intentionally store an empty alt description."
+        ),
+    })
+    .strict(),
+]);
+
+export const imageDescriptionsSetInput = z
+  .object({
+    updates: z
+      .array(imageDescriptionUpdate)
+      .min(1)
+      .describe(
+        "Descriptions or decorative decisions for image assets reported by the accessibility audit."
+      ),
+  })
+  .superRefine(({ updates }, context) => {
+    const assetIds = new Set<string>();
+    updates.forEach(({ assetId }, index) => {
+      if (assetIds.has(assetId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["updates", index, "assetId"],
+          message: "Each image asset may be updated only once.",
+        });
+      }
+      assetIds.add(assetId);
+    });
+  });
+
+export const assetAddInput = z.object({
+  asset: assetSchema,
+});
+
+export const parseAssetType = (value: string | null) => {
+  const result = assetType.safeParse(value);
+  return result.success ? result.data : undefined;
+};
+
+export type AssetInfoFallback =
+  | { width: number; height: number; format: string }
+  | undefined;
+
+export const getAssetInfoFallback = ({
+  format,
+  searchParams,
+}: {
+  format: string | undefined;
+  searchParams: URLSearchParams;
+}): AssetInfoFallback => {
+  const width = Number.parseInt(searchParams.get("width") ?? "", 10);
+  const height = Number.parseInt(searchParams.get("height") ?? "", 10);
+  if (
+    Number.isFinite(width) === false ||
+    Number.isFinite(height) === false ||
+    format === undefined
+  ) {
+    return;
   }
+  return { width, height, format };
+};
+
+export const getBrowserAssetFormat = ({
+  contentType,
+  name,
+}: {
+  contentType: string | null;
+  name: string;
+}) => {
+  const fileExtension = name.split(".").pop()?.toLowerCase();
+  const correctMimeType =
+    ALLOWED_FILE_TYPES[fileExtension as keyof typeof ALLOWED_FILE_TYPES] ??
+    contentType?.split(";")[0];
+
+  const contentTypeArr = correctMimeType?.split("/") ?? [];
+  const mimeCategory = contentTypeArr[0];
+  if (mimeCategory && correctMimeType && !isAllowedMimeCategory(mimeCategory)) {
+    throw new Error(`MIME type "${mimeCategory}/*" is not allowed`);
+  }
+
+  return contentTypeArr[0] === "video" ? contentTypeArr[1] : undefined;
 };
 
 export const replaceAssetInStyleValueMutable = (
@@ -61,7 +178,7 @@ export const replaceAssetInStyleValueMutable = (
 ) => {
   let didReplace = false;
   const { fromFontFamily, toFontFamily } = replacement;
-  traverseAssetStyleValue(value, (item) => {
+  traverseStyleValue(value, (item) => {
     if (
       item.type === "image" &&
       item.value.type === "asset" &&
@@ -87,19 +204,21 @@ export const replaceAssetInStyleValueMutable = (
 
 export const replaceAssetMutable = ({
   pages,
+  projectSettings,
   props,
   styles,
   replacement,
 }: {
   pages?: Pages;
+  projectSettings?: ProjectSettings;
   props: Iterable<Prop>;
   styles: Iterable<StyleDecl>;
   replacement: AssetStyleValueReplacement;
 }) => {
+  if (projectSettings?.meta.faviconAssetId === replacement.fromAssetId) {
+    projectSettings.meta.faviconAssetId = replacement.toAssetId;
+  }
   if (pages !== undefined) {
-    if (pages.meta?.faviconAssetId === replacement.fromAssetId) {
-      pages.meta.faviconAssetId = replacement.toAssetId;
-    }
     for (const page of getAllPages(pages)) {
       if (page.meta.socialImageAssetId === replacement.fromAssetId) {
         page.meta.socialImageAssetId = replacement.toAssetId;
@@ -121,11 +240,13 @@ export const replaceAssetMutable = ({
 
 export const calculateUsagesByAssetId = ({
   pages,
+  projectSettings,
   props,
   styles,
   assets,
 }: {
   pages: Pages | undefined;
+  projectSettings?: ProjectSettings;
   props: Props;
   styles: Styles;
   assets: Map<Asset["id"], Asset>;
@@ -144,8 +265,9 @@ export const calculateUsagesByAssetId = ({
     }
   }
 
-  if (pages?.meta?.faviconAssetId) {
-    addUsage(pages.meta.faviconAssetId, { type: "favicon" });
+  const faviconAssetId = projectSettings?.meta.faviconAssetId;
+  if (faviconAssetId) {
+    addUsage(faviconAssetId, { type: "favicon" });
   }
   if (pages) {
     for (const page of getAllPages(pages)) {
@@ -173,32 +295,32 @@ export const calculateUsagesByAssetId = ({
     }
   }
   for (const [styleDeclKey, styleDecl] of styles) {
-    traverseAssetStyleValue(styleDecl.value, (value) => {
+    traverseStyleValue(styleDecl.value, (value) => {
       if (value.type === "image" && value.value.type === "asset") {
         addUsage(value.value.value, {
           type: "style",
           styleDeclKey,
         });
       }
-      if (value.type === "fontFamily") {
-        for (const fontFamily of value.value) {
-          const assetId = fontFamilyToAssetId.get(fontFamily);
-          if (assetId !== undefined) {
-            addUsage(assetId, {
-              type: "style",
-              styleDeclKey,
-            });
-          }
-        }
-      }
     });
+    for (const fontFamily of collectFontFamiliesFromStyleValue(
+      styleDecl.value
+    )) {
+      const assetId = fontFamilyToAssetId.get(fontFamily);
+      if (assetId !== undefined) {
+        addUsage(assetId, {
+          type: "style",
+          styleDeclKey,
+        });
+      }
+    }
   }
   return usagesByAsset;
 };
 
 type AssetReferenceBuild = Pick<
   CompactBuild,
-  "pages" | "props" | "styles" | "resources" | "dataSources"
+  "pages" | "projectSettings" | "props" | "styles" | "resources" | "dataSources"
 >;
 
 const getRequiredAssets = (state: Pick<BuilderState, "assets">) => {
@@ -214,11 +336,17 @@ const getRequiredAssets = (state: Pick<BuilderState, "assets">) => {
 const getRequiredAssetReferenceBuild = (
   state: Pick<
     BuilderState,
-    "pages" | "props" | "styles" | "resources" | "dataSources"
+    | "pages"
+    | "projectSettings"
+    | "props"
+    | "styles"
+    | "resources"
+    | "dataSources"
   >
 ): AssetReferenceBuild => {
   if (
     state.pages === undefined ||
+    state.projectSettings === undefined ||
     state.props === undefined ||
     state.styles === undefined ||
     state.resources === undefined ||
@@ -231,6 +359,7 @@ const getRequiredAssetReferenceBuild = (
   }
   return {
     pages: state.pages,
+    projectSettings: state.projectSettings,
     props: Array.from(state.props.values()),
     styles: Array.from(state.styles.values()),
     resources: Array.from(state.resources.values()),
@@ -243,11 +372,12 @@ export const createAssetReplacementPayload = ({
   fromAsset,
   toAsset,
 }: {
-  build: Pick<CompactBuild, "pages" | "props" | "styles">;
+  build: Pick<CompactBuild, "pages" | "projectSettings" | "props" | "styles">;
   fromAsset: Asset;
   toAsset: Asset;
 }) => {
   const pages = structuredClone(build.pages);
+  const projectSettings = structuredClone(build.projectSettings);
   const props = new Map(
     build.props.map((item) => [item.id, structuredClone(item)])
   );
@@ -257,6 +387,7 @@ export const createAssetReplacementPayload = ({
 
   replaceAssetMutable({
     pages,
+    projectSettings,
     props: props.values(),
     styles: styles.values(),
     replacement: {
@@ -269,11 +400,13 @@ export const createAssetReplacementPayload = ({
   });
 
   const pagePatches = [];
-  if (build.pages.meta?.faviconAssetId !== pages.meta?.faviconAssetId) {
-    pagePatches.push({
+  const projectSettingsPatches: BuilderPatchChange["patches"] = [];
+  const previousFaviconAssetId = build.projectSettings.meta.faviconAssetId;
+  if (previousFaviconAssetId !== projectSettings.meta.faviconAssetId) {
+    projectSettingsPatches.push({
       op: "replace" as const,
       path: ["meta", "faviconAssetId"],
-      value: pages.meta?.faviconAssetId,
+      value: projectSettings.meta.faviconAssetId,
     });
   }
   for (const page of getAllPages(build.pages)) {
@@ -329,6 +462,12 @@ export const createAssetReplacementPayload = ({
   }
 
   const payload = [];
+  if (projectSettingsPatches.length > 0) {
+    payload.push({
+      namespace: "projectSettings" as const,
+      patches: projectSettingsPatches,
+    });
+  }
   if (pagePatches.length > 0) {
     payload.push({ namespace: "pages" as const, patches: pagePatches });
   }
@@ -338,9 +477,28 @@ export const createAssetReplacementPayload = ({
   if (stylePatches.length > 0) {
     payload.push({ namespace: "styles" as const, patches: stylePatches });
   }
+  const assetPatches: BuilderPatchChange["patches"] = [];
+  if (fromAsset.description !== toAsset.description) {
+    if (fromAsset.description === undefined) {
+      assetPatches.push({
+        op: "remove",
+        path: [toAsset.id, "description"],
+      });
+    } else {
+      assetPatches.push({
+        op: toAsset.description === undefined ? "add" : "replace",
+        path: [toAsset.id, "description"],
+        value: fromAsset.description,
+      });
+    }
+  }
+  assetPatches.push({
+    op: "remove" as const,
+    path: [fromAsset.id],
+  });
   payload.push({
     namespace: "assets" as const,
-    patches: [{ op: "remove" as const, path: [fromAsset.id] }],
+    patches: assetPatches,
   });
   return payload;
 };
@@ -351,6 +509,149 @@ export const findAsset = (assets: Iterable<Asset>, assetId: Asset["id"]) => {
       return asset;
     }
   }
+};
+
+export type ParsedAssetName = {
+  basename: string;
+  hash: string;
+  ext: string;
+};
+
+export const parseAssetName = (name: string): ParsedAssetName => {
+  let hash = "";
+  let ext = "";
+  const lastDotAt = name.lastIndexOf(".");
+  if (lastDotAt > -1) {
+    ext = name.slice(lastDotAt + 1);
+    name = name.slice(0, lastDotAt);
+  }
+  const lastUnderscoreAt = name.lastIndexOf("_");
+  if (lastUnderscoreAt > -1) {
+    hash = name.slice(lastUnderscoreAt + 1);
+    name = name.slice(0, lastUnderscoreAt);
+  }
+  return { basename: name, hash, ext };
+};
+
+export const formatAssetName = (asset: Pick<Asset, "name" | "filename">) => {
+  const { basename, ext } = parseAssetName(asset.name);
+  return `${asset.filename ?? basename}.${ext}`;
+};
+
+export const getAssetDisplayFilename = (asset: Asset) =>
+  asset.filename ?? asset.name.replace(/\.[^/.]+$/, "");
+
+export const addAsset = (
+  state: Pick<BuilderState, "assets">,
+  input: z.infer<typeof assetAddInput>
+) => {
+  const assets = getRequiredAssets(state);
+  if (assets.has(input.asset.id)) {
+    return throwBuilderRuntimeError("CONFLICT", "Asset already exists");
+  }
+  return createRuntimeMutation({
+    payload: [
+      {
+        namespace: "assets",
+        patches: [{ op: "add", path: [input.asset.id], value: input.asset }],
+      },
+    ],
+    result: { assetId: input.asset.id },
+    invalidatesNamespaces: ["assets"],
+  });
+};
+
+const createAssetDescriptionPatch = (
+  asset: Asset,
+  description: string | null
+): BuilderPatchChange["patches"][number] => ({
+  op: asset.description === undefined ? "add" : "replace",
+  path: [asset.id, "description"],
+  value: description,
+});
+
+export const updateAsset = (
+  state: Pick<BuilderState, "assets">,
+  input: z.infer<typeof assetUpdateInput>
+) => {
+  const assets = getRequiredAssets(state);
+  const asset = findAsset(assets.values(), input.assetId);
+  if (asset === undefined) {
+    return throwBuilderRuntimeError("NOT_FOUND", "Asset not found");
+  }
+
+  const patches: BuilderPatchChange["patches"] = [];
+  if (input.values.filename !== undefined) {
+    if (isValidFilename(input.values.filename) === false) {
+      return throwBuilderRuntimeError("BAD_REQUEST", "Invalid filename");
+    }
+    for (const currentAsset of assets.values()) {
+      if (
+        currentAsset.id !== asset.id &&
+        getAssetDisplayFilename(currentAsset) === input.values.filename
+      ) {
+        return throwBuilderRuntimeError("CONFLICT", "Filename already used");
+      }
+    }
+    if (asset.filename !== input.values.filename) {
+      patches.push({
+        op: asset.filename === undefined ? "add" : "replace",
+        path: [asset.id, "filename"],
+        value: input.values.filename,
+      });
+    }
+  }
+  if (
+    input.values.description !== undefined &&
+    asset.description !== input.values.description
+  ) {
+    patches.push(createAssetDescriptionPatch(asset, input.values.description));
+  }
+
+  return createRuntimeMutation({
+    payload: patches.length === 0 ? [] : [{ namespace: "assets", patches }],
+    result: { assetId: asset.id },
+    invalidatesNamespaces: patches.length === 0 ? [] : ["assets"],
+  });
+};
+
+export const setImageDescriptions = (
+  state: Pick<BuilderState, "assets">,
+  input: z.infer<typeof imageDescriptionsSetInput>
+) => {
+  const assets = getRequiredAssets(state);
+  const patches: BuilderPatchChange["patches"] = [];
+  const updated = [];
+
+  for (const update of input.updates) {
+    const asset = findAsset(assets.values(), update.assetId);
+    if (asset === undefined) {
+      return throwBuilderRuntimeError(
+        "NOT_FOUND",
+        `Image asset "${update.assetId}" not found`
+      );
+    }
+    if (asset.type !== "image") {
+      return throwBuilderRuntimeError(
+        "BAD_REQUEST",
+        `Asset "${asset.id}" is not an image`
+      );
+    }
+    const description = update.decorative === true ? "" : update.description;
+    if (asset.description !== description) {
+      patches.push(createAssetDescriptionPatch(asset, description));
+      updated.push({
+        assetId: asset.id,
+        decorative: update.decorative === true,
+      });
+    }
+  }
+
+  return createRuntimeMutation({
+    payload: patches.length === 0 ? [] : [{ namespace: "assets", patches }],
+    result: { updated },
+    invalidatesNamespaces: patches.length === 0 ? [] : ["assets"],
+  });
 };
 
 const countStringReferences = (value: unknown, target: string): number => {
@@ -407,6 +708,7 @@ const countApiOnlyAssetUsage = (build: AssetReferenceBuild, assetId: string) =>
 const getAssetUsageCounts = (build: AssetReferenceBuild, assets: Asset[]) => {
   const usageMap = calculateUsagesByAssetId({
     pages: build.pages,
+    projectSettings: build.projectSettings,
     props: new Map(build.props.map((item) => [item.id, item])),
     styles: new Map(build.styles.map((item) => [getStyleDeclKey(item), item])),
     assets: new Map(assets.map((asset) => [asset.id, asset])),
@@ -425,6 +727,8 @@ const getAssetUsageCounts = (build: AssetReferenceBuild, assets: Asset[]) => {
 const serializeAssetSummary = (asset: Asset) => ({
   id: asset.id,
   name: asset.name,
+  filename: asset.filename,
+  description: asset.description,
   type: asset.type,
   size: asset.size,
   contentType: asset.format,
@@ -512,6 +816,7 @@ export const createAssetUsageList = ({
   );
   const usageMap = calculateUsagesByAssetId({
     pages: build.pages,
+    projectSettings: build.projectSettings,
     props,
     styles,
     assets: new Map(assets.map((item) => [item.id, item])),
@@ -576,7 +881,13 @@ export const createAssetDeletePayload = (
 export const listAssets = (
   state: Pick<
     BuilderState,
-    "assets" | "pages" | "props" | "styles" | "resources" | "dataSources"
+    | "assets"
+    | "pages"
+    | "projectSettings"
+    | "props"
+    | "styles"
+    | "resources"
+    | "dataSources"
   >,
   input: {
     type?: "image" | "font";
@@ -659,14 +970,26 @@ export const replaceAsset = (
       toAsset,
     }),
     result: { fromAssetId: fromAsset.id, toAssetId: toAsset.id },
-    invalidatesNamespaces: ["pages", "props", "styles", "assets"],
+    invalidatesNamespaces: [
+      "pages",
+      "projectSettings",
+      "props",
+      "styles",
+      "assets",
+    ],
   });
 };
 
 export const deleteAssets = (
   state: Pick<
     BuilderState,
-    "assets" | "pages" | "props" | "styles" | "resources" | "dataSources"
+    | "assets"
+    | "pages"
+    | "projectSettings"
+    | "props"
+    | "styles"
+    | "resources"
+    | "dataSources"
   >,
   input: z.infer<typeof assetDeleteInput>
 ) => {

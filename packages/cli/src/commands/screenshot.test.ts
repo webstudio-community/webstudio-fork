@@ -25,6 +25,7 @@ test("prints json result with a browser executable path", async () => {
       browser: "chrome" as const,
     },
     viewport: { width: 800, height: 600 },
+    fullPage: true,
     elapsedMs: 12,
     warnings: [] as string[],
   }));
@@ -36,6 +37,7 @@ test("prints json result with a browser executable path", async () => {
         output: join(folder, "current.png"),
         width: 800,
         height: 600,
+        fullPage: true,
         browser: "auto",
         browserPath,
         waitUntil: "networkidle",
@@ -56,6 +58,7 @@ test("prints json result with a browser executable path", async () => {
       output: join(folder, "current.png"),
       width: 800,
       height: 600,
+      fullPage: true,
       browser: "auto",
       browserPath,
       waitUntil: "networkidle",
@@ -74,11 +77,136 @@ test("prints json result with a browser executable path", async () => {
       browserPath,
       browser: "chrome",
       viewport: { width: 800, height: 600 },
+      fullPage: true,
       elapsedMs: 12,
       warnings: [],
     },
     meta: { command: "screenshot" },
   });
+});
+
+test("captures a project route through a temporary production preview", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "webstudio-screenshot-test-"));
+  vi.spyOn(console, "info").mockImplementation(() => undefined);
+  const captureScreenshotWithBrowserInstall = vi.fn(async () => ({
+    output: join(folder, "pricing.png"),
+    browser: {
+      path: "/browser",
+      source: "option" as const,
+      browser: "chrome" as const,
+    },
+    viewport: { width: 800, height: 600 },
+    fullPage: false,
+    elapsedMs: 12,
+    warnings: [] as string[],
+  }));
+  const preview = {
+    startAndWait: vi.fn(async () => ({
+      url: "http://127.0.0.1:5180/",
+      running: true,
+    })),
+    stop: vi.fn(async () => ({
+      url: "http://127.0.0.1:5180/",
+      running: false,
+    })),
+    resolveUrl: vi.fn(() => "http://127.0.0.1:5180/pricing"),
+  };
+  const preparePreviewProject = vi.fn(async () => ({ cwd: "/tmp/preview" }));
+  const createPreviewController = vi.fn(() => preview);
+
+  try {
+    await screenshot(
+      {
+        path: "/pricing",
+        width: 800,
+        height: 600,
+        json: true,
+      },
+      {
+        captureScreenshotWithBrowserInstall,
+        preparePreviewProject,
+        createPreviewController,
+      }
+    );
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+
+  expect(preparePreviewProject).toHaveBeenCalledWith({
+    assets: true,
+    template: ["defaults", "react-router"],
+    generate: true,
+  });
+  expect(createPreviewController).toHaveBeenCalledWith({
+    host: "127.0.0.1",
+    port: 5173,
+  });
+  expect(preview.startAndWait).toHaveBeenCalledWith({
+    cwd: "/tmp/preview",
+    host: "127.0.0.1",
+    port: 5173,
+    restart: true,
+  });
+  expect(preview.resolveUrl).toHaveBeenCalledWith("/pricing");
+  expect(captureScreenshotWithBrowserInstall).toHaveBeenCalledWith(
+    expect.objectContaining({ url: "http://127.0.0.1:5180/pricing" })
+  );
+  expect(preview.stop).toHaveBeenCalledOnce();
+});
+
+test("stops the temporary preview when project route capture fails", async () => {
+  const preview = {
+    startAndWait: vi.fn(async () => ({
+      url: "http://127.0.0.1:5173/",
+      running: true,
+    })),
+    stop: vi.fn(async () => ({
+      url: "http://127.0.0.1:5173/",
+      running: false,
+    })),
+    resolveUrl: vi.fn(() => "http://127.0.0.1:5173/"),
+  };
+
+  await expect(
+    screenshot(
+      { path: "/", width: 800, height: 600 },
+      {
+        captureScreenshotWithBrowserInstall: vi.fn(async () => {
+          throw new Error("capture failed");
+        }),
+        preparePreviewProject: vi.fn(async () => ({ cwd: "/tmp/preview" })),
+        createPreviewController: vi.fn(() => preview),
+      }
+    )
+  ).rejects.toThrow("capture failed");
+
+  expect(preview.stop).toHaveBeenCalledOnce();
+});
+
+test("stops the temporary preview when startup fails", async () => {
+  const preview = {
+    startAndWait: vi.fn(async () => {
+      throw new Error("preview failed");
+    }),
+    stop: vi.fn(async () => ({
+      url: "http://127.0.0.1:5173/",
+      running: false,
+    })),
+    resolveUrl: vi.fn(() => "http://127.0.0.1:5173/"),
+  };
+
+  await expect(
+    screenshot(
+      { path: "/", width: 800, height: 600 },
+      {
+        captureScreenshotWithBrowserInstall: vi.fn(),
+        preparePreviewProject: vi.fn(async () => ({ cwd: "/tmp/preview" })),
+        createPreviewController: vi.fn(() => preview),
+      }
+    )
+  ).rejects.toThrow("preview failed");
+
+  expect(preview.stop).toHaveBeenCalledOnce();
 });
 
 test("rejects invalid screenshot readiness options", async () => {

@@ -2,9 +2,10 @@ import { FORMAT_TEXT_COMMAND } from "lexical";
 import { TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { createCommandsEmitter } from "~/shared/commands-emitter";
 import { getElementByInstanceSelector } from "~/shared/dom-utils";
-import { findAllEditableInstanceSelector } from "~/shared/instance-utils/lookup";
+import { findAllEditableInstanceSelector } from "@webstudio-is/project-build/runtime/lookup";
 import {
   $allSelectedInstanceSelectors,
+  $isContentMode,
   $registeredComponentMetas,
   $propsIndex,
   $selectedInstanceSelector,
@@ -23,10 +24,11 @@ import {
 import {
   isDescendantOrSelf,
   type InstanceSelector,
-} from "~/shared/instance-utils/tree";
+} from "@webstudio-is/project-build/runtime/tree";
 import { deleteSelectedInstance } from "~/shared/instance-utils/mutation";
-import { findClosestRichText } from "~/shared/content-model";
+import { findClosestRichText } from "@webstudio-is/project-build/runtime/content-model";
 import { getDeletablePageActionTarget } from "~/shared/page-action-target";
+import { isTextEditableInContentMode } from "./content-mode";
 
 const deleteSelectedPageOrInstance = () => {
   if (getDeletablePageActionTarget() !== undefined) {
@@ -111,6 +113,16 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
           }
 
           editableInstanceSelector = selectors[0];
+        }
+
+        if (
+          isTextEditableInContentMode({
+            isContentMode: $isContentMode.get(),
+            instanceSelector: editableInstanceSelector,
+            instances: $instances.get(),
+          }) === false
+        ) {
+          return;
         }
 
         const element = getElementByInstanceSelector(editableInstanceSelector);

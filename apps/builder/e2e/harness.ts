@@ -1,10 +1,12 @@
 import { parseBuilderUrl } from "@webstudio-is/protocol";
 import { basename } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   chromium,
   type Browser,
   type BrowserContext,
   type BrowserContextOptions,
+  type LaunchOptions,
 } from "playwright";
 import env from "../app/env/env.server";
 
@@ -26,6 +28,8 @@ export type Test = {
 
 export type Suite = {
   name: string;
+  fileName: string;
+  filePath: string;
   beforeAll?: () => Promise<void>;
   beforeEach?: () => Promise<void>;
   afterAll?: () => Promise<void>;
@@ -42,7 +46,9 @@ const suites: Suite[] = [];
 const suitesByFile = new Map<string, Suite>();
 
 const formatSuiteName = (filePath: string) => {
-  return basename(filePath, ".e2e.ts").replaceAll("-", " ");
+  return basename(filePath, ".e2e.ts")
+    .replace(/\.\[shard-\d+\]$/, "")
+    .replaceAll("-", " ");
 };
 
 const getCallerFile = () => {
@@ -69,7 +75,12 @@ const getFileSuite = () => {
     return suite;
   }
 
-  suite = { name: formatSuiteName(filePath), tests: [] };
+  suite = {
+    name: formatSuiteName(filePath),
+    fileName: basename(filePath),
+    filePath,
+    tests: [],
+  };
   suitesByFile.set(filePath, suite);
   suites.push(suite);
   return suite;
@@ -97,13 +108,42 @@ export const getSuites = () => suites;
 let browser: Browser | undefined;
 let context: BrowserContext | undefined;
 
+export type BrowserScope = {
+  run: <Result>(task: () => Promise<Result>) => Promise<Result>;
+  reset: () => Promise<void>;
+  close: () => Promise<void>;
+};
+
+type BrowserScopeState = {
+  context: BrowserContext;
+  isolatedContexts: Set<BrowserContext>;
+};
+
+const browserScopeStorage = new AsyncLocalStorage<BrowserScopeState>();
+
 const browserContextOptions: BrowserContextOptions = {
   ignoreHTTPSErrors: true,
   permissions: ["clipboard-read", "clipboard-write"],
 };
 
+const isLoopbackHost = (hostname: string) =>
+  hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+
+export const getBrowserLaunchOptions = (url = builderUrl): LaunchOptions => {
+  const hostname = new URL(url).hostname;
+  if (isLoopbackHost(hostname) === false) {
+    return {};
+  }
+  return {
+    // Builder tests use project subdomains such as p-project-id.wstd.dev.
+    args: [
+      "--host-resolver-rules=MAP wstd.dev 127.0.0.1,MAP *.wstd.dev 127.0.0.1",
+    ],
+  };
+};
+
 export const startBrowser = async () => {
-  browser = await chromium.launch();
+  browser = await chromium.launch(getBrowserLaunchOptions());
   context = await browser.newContext(browserContextOptions);
 };
 
@@ -114,12 +154,53 @@ export const stopBrowser = async () => {
   browser = undefined;
 };
 
+export const createBrowserScopeForBrowser = async (
+  browserInstance: Pick<Browser, "newContext">
+): Promise<BrowserScope> => {
+  const createState = async (): Promise<BrowserScopeState> => {
+    return {
+      context: await browserInstance.newContext(browserContextOptions),
+      isolatedContexts: new Set(),
+    };
+  };
+  let state = await createState();
+  const closeState = async (target: BrowserScopeState) => {
+    await Promise.allSettled(
+      [...target.isolatedContexts].map((isolatedContext) =>
+        isolatedContext.close()
+      )
+    );
+    target.isolatedContexts.clear();
+    await target.context.close().catch(() => undefined);
+  };
+  return {
+    run: async (task) => {
+      const activeState = state;
+      return await browserScopeStorage.run(activeState, task);
+    },
+    reset: async () => {
+      const previousState = state;
+      await closeState(previousState);
+      state = await createState();
+    },
+    close: async () => await closeState(state),
+  };
+};
+
+export const createBrowserScope = async (): Promise<BrowserScope> => {
+  if (browser === undefined) {
+    throw new Error("Browser is not initialized");
+  }
+  return await createBrowserScopeForBrowser(browser);
+};
+
 export const newPage = async () => {
-  if (context === undefined) {
+  const activeContext = browserScopeStorage.getStore()?.context ?? context;
+  if (activeContext === undefined) {
     throw new Error("Browser context is not initialized");
   }
 
-  return await context.newPage();
+  return await activeContext.newPage();
 };
 
 export const newIsolatedPage = async () => {
@@ -128,10 +209,13 @@ export const newIsolatedPage = async () => {
   }
 
   const isolatedContext = await browser.newContext(browserContextOptions);
+  const scope = browserScopeStorage.getStore();
+  scope?.isolatedContexts.add(isolatedContext);
 
   return {
     page: await isolatedContext.newPage(),
     close: async () => {
+      scope?.isolatedContexts.delete(isolatedContext);
       await isolatedContext.close();
     },
   };
@@ -141,10 +225,12 @@ export const getProjectBuilderUrl = ({
   projectId,
   authToken,
   mode,
+  features,
 }: {
   projectId: string;
   authToken?: string;
   mode?: "content" | "preview";
+  features?: string[];
 }) => {
   const url = new URL(dashboardUrl);
   url.hostname = `p-${projectId}.wstd.dev`;
@@ -153,6 +239,9 @@ export const getProjectBuilderUrl = ({
   }
   if (mode !== undefined) {
     url.searchParams.set("mode", mode);
+  }
+  if (features !== undefined && features.length > 0) {
+    url.searchParams.set("features", features.join(","));
   }
   return url.href;
 };

@@ -39,7 +39,10 @@ import {
   $selectedInstanceOutlines,
   $hoveredInstanceOutline,
 } from "~/shared/nano-states";
-import { $marketplaceProduct } from "~/shared/sync/data-stores";
+import {
+  $marketplaceProduct,
+  $projectSettings,
+} from "~/shared/sync/data-stores";
 import { $ephemeralStyles } from "~/canvas/stores";
 import {
   ImmerhinSyncObject,
@@ -76,7 +79,7 @@ import {
 import { $selectedPageId } from "../nano-states/pages";
 import { $systemDataByPage } from "../system";
 import { $resourcesCache } from "../resources";
-import type { InstanceSelector } from "../instance-utils/tree";
+import type { InstanceSelector } from "@webstudio-is/project-build/runtime/tree";
 
 enableMapSet();
 // safari structuredClone fix
@@ -96,6 +99,7 @@ const serverSyncStores = {
   dataSources: $dataSources,
   resources: $resources,
   assets: $assets,
+  projectSettings: $projectSettings,
   marketplaceProduct: $marketplaceProduct,
 } as const;
 

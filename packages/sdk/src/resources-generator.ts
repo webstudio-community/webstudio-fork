@@ -20,14 +20,19 @@ export const generateResources = ({
   resources: Resources;
 }) => {
   const usedDataSources: DataSources = new Map();
+  const generatedResourceIds = new Set<string>();
 
   let generatedRequests = "";
   for (const resource of resources.values()) {
+    generatedResourceIds.add(resource.id);
     let generatedRequest = "";
     // call resource by bound variable name
     const resourceName = scope.getName(resource.id, resource.name);
     generatedRequest += `  const ${resourceName}: ResourceRequest = {\n`;
     generatedRequest += `    name: ${JSON.stringify(resource.name)},\n`;
+    if (resource.control !== undefined) {
+      generatedRequest += `    control: "${resource.control}",\n`;
+    }
     const url = generateExpression({
       expression: resource.url,
       dataSources,
@@ -100,7 +105,10 @@ export const generateResources = ({
 
   generated += `  const _data = new Map<string, ResourceRequest>([\n`;
   for (const dataSource of dataSources.values()) {
-    if (dataSource.type === "resource") {
+    if (
+      dataSource.type === "resource" &&
+      generatedResourceIds.has(dataSource.resourceId)
+    ) {
       const name = scope.getName(dataSource.resourceId, dataSource.name);
       generated += `    ["${name}", ${name}],\n`;
     }
@@ -109,7 +117,7 @@ export const generateResources = ({
 
   generated += `  const _action = new Map<string, ResourceRequest>([\n`;
   for (const prop of props.values()) {
-    if (prop.type === "resource") {
+    if (prop.type === "resource" && generatedResourceIds.has(prop.value)) {
       const name = scope.getName(prop.value, prop.name);
       generated += `    ["${name}", ${name}],\n`;
     }

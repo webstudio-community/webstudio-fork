@@ -23,8 +23,19 @@ export * from "./resources-generator";
 export * from "./page-meta-generator";
 export * from "./url-pattern";
 export * from "./link-utils";
+export * from "./json-ld";
 export * from "./css";
 export * from "./__generated__/tags";
+export {
+  getInputJsonSchemaAdditionalProperties,
+  getInputJsonSchemaMetadata,
+  getInputJsonSchemaProperties,
+  inputJsonSchemaAcceptsType,
+  toInputJsonSchemaObject,
+  type InputJsonSchema,
+  type InputJsonSchemaValue,
+  type InputJsonSchemaMetadata,
+} from "./input-json-schema";
 
 export type {
   AnimationAction,

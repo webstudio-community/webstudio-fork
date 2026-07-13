@@ -1,7 +1,12 @@
-import { type Patch, applyPatches } from "immer";
+import { applyPatches, enableMapSet, enablePatches, type Patch } from "immer";
 import { type Asset, assets } from "@webstudio-is/sdk";
 import type { Client } from "@webstudio-is/postgrest/index.server";
 import { formatAsset } from "./utils/format-asset";
+
+// This module applies Immer patches to Maps and can be imported directly,
+// so initialize the required Immer plugins next to the production patch use.
+enableMapSet();
+enablePatches();
 
 const assertPostgrestSuccess = (result: { error: unknown }) => {
   if (result.error) {
@@ -122,8 +127,7 @@ export const patchAssetsWithClient = async (
     assetsMap.set(asset.id, asset);
   }
   const patchedAssets = applyPatches(assetsMap, patches);
-  // validate assets without recreating objects
-  // we expect referencial equality to find updated assets
+  // Validate assets without recreating objects.
   assets.parse(patchedAssets);
 
   const deletedAssetIds: Asset["id"][] = [];
@@ -138,14 +142,28 @@ export const patchAssetsWithClient = async (
 
   for (const asset of assetsMap.values()) {
     const patchedAsset = patchedAssets.get(asset.id);
-    if (asset !== patchedAsset && patchedAsset) {
+    const metadataChanged =
+      patchedAsset !== undefined &&
+      (asset.filename !== patchedAsset.filename ||
+        asset.description !== patchedAsset.description);
+    if (metadataChanged) {
       const { filename, description } = patchedAsset;
       const updatedAsset = await client
         .from("Asset")
         .update({ filename, description })
         .eq("id", asset.id)
-        .eq("projectId", asset.projectId);
+        .eq("projectId", asset.projectId)
+        .select("filename, description")
+        .single();
       assertPostgrestSuccess(updatedAsset);
+      if (
+        updatedAsset.data?.filename !== (filename ?? null) ||
+        updatedAsset.data?.description !== (description ?? null)
+      ) {
+        throw new Error(
+          `Asset metadata update was not persisted for ${asset.id}`
+        );
+      }
     }
   }
 

@@ -16,6 +16,7 @@ import {
   captureBrowserScreenshot,
   defaultBrowserScreenshotDependencies,
   type BrowserScreenshotDependencies,
+  type BrowserScreenshotLayout,
   type BrowserScreenshotOptions,
 } from "./screenshot-browser-cdp";
 
@@ -54,7 +55,7 @@ export type ScreenshotDependencies = {
 } & BrowserScreenshotDependencies & {
     captureBrowserScreenshot?: (
       options: BrowserScreenshotOptions
-    ) => Promise<void>;
+    ) => Promise<BrowserScreenshotLayout | undefined>;
     installCommand: (file: string, args: readonly string[]) => Promise<void>;
     getuid: () => number | undefined;
     now: () => number;
@@ -496,6 +497,9 @@ export const captureScreenshot = async (
     output?: string;
     width: number;
     height: number;
+    fullPage?: boolean;
+    includeImageMetrics?: boolean;
+    includeResourceMetrics?: boolean;
     browser: ScreenshotBrowser;
     browserPath?: string;
     waitUntil?: ScreenshotWaitUntil;
@@ -517,6 +521,9 @@ export const captureScreenshot = async (
     output,
     width: options.width,
     height: options.height,
+    fullPage: options.fullPage,
+    includeImageMetrics: options.includeImageMetrics,
+    includeResourceMetrics: options.includeResourceMetrics,
     url: options.url,
     uid: dependencies.getuid(),
     waitUntil: options.waitUntil ?? defaultScreenshotWaitUntil,
@@ -524,11 +531,10 @@ export const captureScreenshot = async (
     waitForTimeout: options.waitForTimeout ?? defaultScreenshotWaitForTimeout,
     timeout: options.timeout ?? defaultScreenshotTimeout,
   };
-  if (dependencies.captureBrowserScreenshot !== undefined) {
-    await dependencies.captureBrowserScreenshot(browserScreenshotOptions);
-  } else {
-    await captureBrowserScreenshot(browserScreenshotOptions, dependencies);
-  }
+  const layout =
+    dependencies.captureBrowserScreenshot !== undefined
+      ? await dependencies.captureBrowserScreenshot(browserScreenshotOptions)
+      : await captureBrowserScreenshot(browserScreenshotOptions, dependencies);
   return {
     output,
     browser,
@@ -536,8 +542,10 @@ export const captureScreenshot = async (
       width: options.width,
       height: options.height,
     },
+    fullPage: options.fullPage === true,
     elapsedMs: dependencies.now() - startedAt,
     warnings: [] as string[],
+    ...(layout === undefined ? {} : { layout }),
   };
 };
 
@@ -547,6 +555,9 @@ export const captureScreenshotWithBrowserInstall = async (
     output?: string;
     width: number;
     height: number;
+    fullPage?: boolean;
+    includeImageMetrics?: boolean;
+    includeResourceMetrics?: boolean;
     browser: ScreenshotBrowser;
     browserPath?: string;
     waitUntil?: ScreenshotWaitUntil;

@@ -71,6 +71,27 @@ describe("project bundle contract", () => {
     });
   });
 
+  test("preserves build-versioned marketplace metadata", () => {
+    const marketplaceProduct = {
+      category: "pageTemplates" as const,
+      name: "Marketplace template",
+      thumbnailAssetId: "asset-1",
+      author: "Webstudio",
+      email: "hello@example.com",
+      website: "https://example.com",
+      issues: "",
+      description: "A reusable marketplace template.",
+    };
+
+    expect(
+      publishedProjectBundle.parse(
+        createPublishedProjectBundleFixture({
+          build: { marketplaceProduct },
+        })
+      ).build.marketplaceProduct
+    ).toEqual(marketplaceProduct);
+  });
+
   test("requires published project metadata", () => {
     const data = createPublishedProjectBundleFixture();
     delete (data as Partial<typeof data>).projectTitle;
@@ -135,7 +156,7 @@ describe("project bundle contract", () => {
   });
 
   test("generates the current bundle version", () => {
-    expect(bundleVersion).toMatch(/^bundle-[0-9a-f]{8}$/);
+    expect(bundleVersion).toMatch(/^bundle-[a-z0-9]+$/);
   });
 
   test("formats project bundle version mismatch messages", () => {

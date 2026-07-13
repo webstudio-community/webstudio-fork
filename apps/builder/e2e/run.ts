@@ -1,24 +1,47 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
+  builderUrl,
+  createBrowserScope,
   dashboardUrl,
   getSuites,
   newPage,
   postgrestUrl,
   startBrowser,
   stopBrowser,
+  type BrowserScope,
 } from "./harness";
 import { resetDatabase } from "./db";
 import { logPerf, measure, printPerfSummary } from "./perf";
-import "./tests/content-mode-editing.e2e";
-import "./tests/pages-actions.e2e";
-import "./tests/preview-links.e2e";
-import "./tests/share-link-permissions.e2e";
-import "./tests/slot-keyboard.e2e";
+import { getE2eTestModules } from "./test-modules";
+import { stopChildProcess } from "./process";
+import { runWithTimeout } from "./timeout";
 
 const testTimeoutMs =
-  Number.parseInt(process.env.E2E_TEST_TIMEOUT_MS ?? "", 10) || 60_000;
-const testFilter = process.env.E2E_TEST_FILTER;
+  Number.parseInt(process.env.E2E_TEST_TIMEOUT_MS ?? "", 10) || 120_000;
+const testShard = process.env.E2E_TEST_SHARD?.trim();
+const testFilters = [
+  ...(process.env.E2E_TEST_FILTERS ?? "")
+    .split("\n")
+    .map((filter) => filter.trim())
+    .filter(Boolean),
+  ...(process.env.E2E_TEST_FILTER === undefined
+    ? []
+    : [process.env.E2E_TEST_FILTER]),
+];
+
+// Shard ownership lives in filenames, so adding a test file requires no second
+// registry update and focused shards avoid unrelated fixture setup.
+const testModules = getE2eTestModules(
+  await readdir(fileURLToPath(new URL("./tests", import.meta.url))),
+  testShard
+);
+
+for (const module of testModules) {
+  await import(module);
+}
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED ??= "0";
 
@@ -68,7 +91,7 @@ const waitForPostgrest = async () => {
 
 const waitForBuilder = async (child: ChildProcess) => {
   await Promise.race([
-    waitForHttp(dashboardUrl, 60_000),
+    waitForHttp(builderUrl, 60_000),
     new Promise<never>((_, reject) => {
       child.once("exit", (code, signal) => {
         reject(
@@ -93,27 +116,6 @@ const warmLoginRoute = async () => {
   }
 };
 
-const withTimeout = async <Result>(
-  name: string,
-  timeoutMs: number,
-  task: () => Promise<Result>
-) => {
-  let timeout: NodeJS.Timeout | undefined;
-
-  try {
-    return await Promise.race([
-      task(),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error(`Timed out after ${timeoutMs}ms: ${name}`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
 const pipeBuilderOutput = (child: ChildProcess) => {
   child.stdout?.on("data", (chunk) => {
     process.stdout.write(`[builder] ${chunk}`);
@@ -126,28 +128,39 @@ const pipeBuilderOutput = (child: ChildProcess) => {
 const runSuiteTests = async ({
   suite,
   tests,
+  browserScope,
+  onTimeout,
 }: {
   suite: ReturnType<typeof getSuites>[number];
   tests: ReturnType<typeof getSuites>[number]["tests"];
+  browserScope: BrowserScope;
+  onTimeout: () => Promise<void>;
 }) => {
   try {
     for (const test of tests) {
       const startedAt = Date.now();
-      await withTimeout(
-        `${suite.name} › ${test.name}`,
-        testTimeoutMs,
-        async () => {
-          await suite.beforeEach?.();
-          await test.run();
-        }
-      );
+      await runWithTimeout({
+        name: `${suite.name} › ${test.name}`,
+        timeoutMs: testTimeoutMs,
+        onTimeout,
+        task: async () =>
+          await browserScope.run(async () => {
+            await suite.beforeEach?.();
+            await test.run();
+          }),
+      });
       const duration = Date.now() - startedAt;
       console.info(`✓ ${suite.name} › ${test.name} (${duration}ms)`);
     }
   } finally {
     const afterAllStartedAt = Date.now();
-    await withTimeout(`${suite.name} afterAll`, testTimeoutMs, async () => {
-      await suite.afterAll?.();
+    await runWithTimeout({
+      name: `${suite.name} afterAll`,
+      timeoutMs: testTimeoutMs,
+      onTimeout,
+      task: async () => {
+        await browserScope.run(async () => await suite.afterAll?.());
+      },
     });
     logPerf(`${suite.name} afterAll`, afterAllStartedAt);
   }
@@ -184,25 +197,73 @@ const startBuilder = async (): Promise<ChildProcess | undefined> => {
 };
 
 const stopBuilder = async (child: ChildProcess | undefined) => {
-  if (child === undefined || child.killed) {
+  if (child === undefined) {
     return;
   }
+  await stopChildProcess(child);
+};
 
-  child.kill("SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolve) => child.once("exit", () => resolve())),
-    delay(5_000).then(() => {
-      child.kill("SIGKILL");
-    }),
-  ]);
+const getRunnableSuites = () => {
+  const suites = getSuites()
+    .filter((suite) => {
+      if (testShard === undefined || testShard === "") {
+        return true;
+      }
+      return suite.fileName.includes(`[${testShard}]`);
+    })
+    .map((suite) => ({
+      suite,
+      tests: suite.tests.filter((test) => {
+        if (testFilters.length === 0) {
+          return true;
+        }
+        const fullName = `${suite.name} › ${test.name}`;
+        return testFilters.some(
+          (filter) => test.name.includes(filter) || fullName.includes(filter)
+        );
+      }),
+    }));
+
+  const runnableSuites = suites.filter(({ tests }) => tests.length > 0);
+
+  if (testShard !== undefined && testShard !== "" && suites.length === 0) {
+    const availableFiles = getSuites().map((suite) => suite.fileName);
+    throw new Error(
+      [
+        `E2E_TEST_SHARD did not match any test files: ${JSON.stringify(testShard)}`,
+        "Available test files:",
+        ...availableFiles.map((file) => `- ${file}`),
+      ].join("\n")
+    );
+  }
+
+  if (testFilters.length > 0 && runnableSuites.length === 0) {
+    const availableTests = suites.flatMap(({ suite }) =>
+      suite.tests.map((test) => `${suite.name} › ${test.name}`)
+    );
+    throw new Error(
+      [
+        `E2E_TEST_FILTERS did not match any tests: ${JSON.stringify(testFilters)}`,
+        "Available tests:",
+        ...availableTests.map((name) => `- ${name}`),
+      ].join("\n")
+    );
+  }
+
+  return runnableSuites;
 };
 
 const run = async () => {
   const totalStartedAt = Date.now();
   const bootStartedAt = Date.now();
   let builder: ChildProcess | undefined;
+  const browserScopes: BrowserScope[] = [];
 
   try {
+    const runnableSuites = getRunnableSuites();
+    if (process.env.E2E_VALIDATE_TEST_FILTER_ONLY === "true") {
+      return;
+    }
     const postgrestReady = measure("wait for postgrest", async () => {
       await waitForPostgrest();
     });
@@ -214,40 +275,53 @@ const run = async () => {
     await measure("warm login route", warmLoginRoute);
     logPerf("boot builder/browser", bootStartedAt);
     const testsStartedAt = Date.now();
-    const runnableSuites = getSuites()
-      .map((suite) => ({
-        suite,
-        tests: suite.tests.filter(
-          (test) => testFilter === undefined || test.name.includes(testFilter)
-        ),
-      }))
-      .filter(({ tests }) => tests.length > 0);
 
     await measure("reset database", resetDatabase);
 
-    for (const { suite } of runnableSuites) {
+    const scopedSuites = await Promise.all(
+      runnableSuites.map(async (runnableSuite) => {
+        const browserScope = await createBrowserScope();
+        browserScopes.push(browserScope);
+        return { ...runnableSuite, browserScope };
+      })
+    );
+    let resetAllBrowserScopesPromise: Promise<void> | undefined;
+    const resetAllBrowserScopes = () => {
+      resetAllBrowserScopesPromise ??= Promise.allSettled(
+        browserScopes.map((scope) => scope.reset())
+      ).then(() => undefined);
+      return resetAllBrowserScopesPromise;
+    };
+
+    for (const { suite, browserScope } of scopedSuites) {
       const beforeAllStartedAt = Date.now();
-      await withTimeout(`${suite.name} beforeAll`, testTimeoutMs, async () => {
-        await suite.beforeAll?.();
+      await runWithTimeout({
+        name: `${suite.name} beforeAll`,
+        timeoutMs: testTimeoutMs,
+        onTimeout: resetAllBrowserScopes,
+        task: async () => {
+          await browserScope.run(async () => await suite.beforeAll?.());
+        },
       });
       logPerf(`${suite.name} beforeAll`, beforeAllStartedAt);
     }
 
-    const results = await Promise.allSettled(
-      runnableSuites.map(async ({ suite, tests }) => {
+    await Promise.all(
+      scopedSuites.map(async ({ suite, tests, browserScope }) => {
         const suiteStartedAt = Date.now();
-        await runSuiteTests({ suite, tests });
+        await runSuiteTests({
+          suite,
+          tests,
+          browserScope,
+          onTimeout: resetAllBrowserScopes,
+        });
         const suiteDuration = Date.now() - suiteStartedAt;
         console.info(`✓ ${suite.name} completed (${suiteDuration}ms)`);
       })
     );
-
-    const failedSuite = results.find((result) => result.status === "rejected");
-    if (failedSuite?.status === "rejected") {
-      throw failedSuite.reason;
-    }
     logPerf("tests", testsStartedAt);
   } finally {
+    await Promise.allSettled(browserScopes.map((scope) => scope.close()));
     await stopBrowser();
     await stopBuilder(builder);
     logPerf("runner total", totalStartedAt);

@@ -28,6 +28,11 @@ class FakeBrowserProcess {
 
 class FakeWebSocket {
   readonly sentMethods: string[] = [];
+  readonly sentMessages: Array<{
+    id: number;
+    method: string;
+    params?: Record<string, unknown>;
+  }> = [];
   readonly listeners = new Map<
     string,
     Array<(event: { data?: string }) => void>
@@ -54,6 +59,7 @@ class FakeWebSocket {
       method: string;
       params?: Record<string, unknown>;
     };
+    this.sentMessages.push(message);
     this.sentMethods.push(message.method);
     const respond = (result: unknown = {}) => {
       this.emit("message", {
@@ -68,11 +74,93 @@ class FakeWebSocket {
       setTimeout(() => respond({ result: { value: true } }), 0);
       return;
     }
+    if (
+      message.method === "Runtime.evaluate" &&
+      typeof message.params?.expression === "string" &&
+      message.params.expression.includes(
+        'performance.getEntriesByType("resource")'
+      )
+    ) {
+      setTimeout(
+        () =>
+          respond({
+            result: {
+              value: [
+                {
+                  pathname: "/styles.css",
+                  initiatorType: "link",
+                  transferSize: 12000,
+                  encodedBodySize: 11000,
+                  decodedBodySize: 40000,
+                  duration: 25,
+                  renderBlockingStatus: "blocking",
+                },
+                {
+                  pathname: "/fonts/brand.ttf",
+                  initiatorType: "css",
+                  transferSize: 80000,
+                  encodedBodySize: 79000,
+                  decodedBodySize: 79000,
+                  duration: 40,
+                },
+              ],
+            },
+          }),
+        0
+      );
+      return;
+    }
+    if (
+      message.method === "Runtime.evaluate" &&
+      typeof message.params?.expression === "string" &&
+      message.params.expression.includes("Array.from(document.images")
+    ) {
+      setTimeout(
+        () =>
+          respond({
+            result: {
+              value: [
+                {
+                  instanceId: "hero-image",
+                  loading: "eager",
+                  complete: true,
+                  naturalWidth: 2400,
+                  naturalHeight: 1600,
+                  renderedWidth: 600,
+                  renderedHeight: 400,
+                  top: 1000,
+                },
+              ],
+            },
+          }),
+        0
+      );
+      return;
+    }
     if (message.method === "Page.captureScreenshot") {
       setTimeout(
         () =>
           respond({
             data: Buffer.from("fake-png").toString("base64"),
+          }),
+        0
+      );
+      return;
+    }
+    if (message.method === "Page.getLayoutMetrics") {
+      setTimeout(
+        () =>
+          respond({
+            cssContentSize: {
+              x: 0,
+              y: 0,
+              width: 812.4,
+              height: 2345.6,
+            },
+            cssLayoutViewport: {
+              clientWidth: 800,
+              clientHeight: 600,
+            },
           }),
         0
       );
@@ -146,13 +234,11 @@ const createDependencies = ({
 } = {}): BrowserScreenshotDependencies => {
   const defaultFetch = vi.fn(async (url: string) => ({
     json: async () =>
-      url.endsWith("/json/list")
-        ? [
-            {
-              type: "page",
-              webSocketDebuggerUrl: "ws://127.0.0.1:9222/page/1",
-            },
-          ]
+      url.includes("/json/new?")
+        ? {
+            type: "page",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9222/page/created",
+          }
         : {},
   })) as unknown as typeof globalThis.fetch;
   return {
@@ -208,11 +294,8 @@ test("captures through DevTools with lifecycle and selector waits", async () => 
     "http://127.0.0.1:9222/json/new?about:blank",
     { method: "PUT" }
   );
-  expect(dependencies.fetch).toHaveBeenCalledWith(
-    "http://127.0.0.1:9222/json/list"
-  );
   expect(dependencies.createWebSocket).toHaveBeenCalledWith(
-    "ws://127.0.0.1:9222/page/1"
+    "ws://127.0.0.1:9222/page/created"
   );
   expect(socket.sentMethods).toEqual(
     expect.arrayContaining([
@@ -234,6 +317,88 @@ test("captures through DevTools with lifecycle and selector waits", async () => 
   expect(dependencies.rm).toHaveBeenCalledWith("/tmp/webstudio-browser-test", {
     recursive: true,
     force: true,
+  });
+});
+
+test("captures full page and returns DevTools layout metrics", async () => {
+  const browserProcess = new FakeBrowserProcess();
+  const socket = new FakeWebSocket();
+  const dependencies = createDependencies({ browserProcess, socket });
+
+  const layout = await captureBrowserScreenshot(
+    {
+      url: "https://example.com",
+      output: "/tmp/full-page.png",
+      width: 800,
+      height: 600,
+      fullPage: true,
+      includeImageMetrics: true,
+      includeResourceMetrics: true,
+      browserPath: "/usr/bin/chromium",
+      uid: 1000,
+      waitUntil: "networkidle",
+      waitForTimeout: 0,
+      timeout: 1000,
+    },
+    dependencies
+  );
+
+  expect(layout).toEqual({
+    viewportWidth: 800,
+    viewportHeight: 600,
+    contentWidth: 813,
+    contentHeight: 2346,
+    horizontalOverflow: true,
+    images: [
+      {
+        instanceId: "hero-image",
+        loading: "eager",
+        complete: true,
+        naturalWidth: 2400,
+        naturalHeight: 1600,
+        renderedWidth: 600,
+        renderedHeight: 400,
+        top: 1000,
+      },
+    ],
+    resources: [
+      {
+        pathname: "/styles.css",
+        initiatorType: "link",
+        transferSize: 12000,
+        encodedBodySize: 11000,
+        decodedBodySize: 40000,
+        duration: 25,
+        renderBlockingStatus: "blocking",
+      },
+      {
+        pathname: "/fonts/brand.ttf",
+        initiatorType: "css",
+        transferSize: 80000,
+        encodedBodySize: 79000,
+        decodedBodySize: 79000,
+        duration: 40,
+      },
+    ],
+  });
+
+  expect(socket.sentMethods).toEqual(
+    expect.arrayContaining(["Page.getLayoutMetrics", "Page.captureScreenshot"])
+  );
+  expect(
+    socket.sentMessages.find(
+      (message) => message.method === "Page.captureScreenshot"
+    )?.params
+  ).toEqual({
+    format: "png",
+    captureBeyondViewport: true,
+    clip: {
+      x: 0,
+      y: 0,
+      width: 813,
+      height: 2346,
+      scale: 1,
+    },
   });
 });
 

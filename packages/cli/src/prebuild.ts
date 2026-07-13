@@ -2,7 +2,8 @@ import { basename, dirname, join, normalize, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { rm, cp, readFile, writeFile, readdir } from "node:fs/promises";
 import { cwd, exit } from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { parse } from "acorn";
 import { log, spinner } from "@clack/prompts";
 import merge from "deepmerge";
 import {
@@ -41,7 +42,11 @@ import {
   toRuntimeAsset,
 } from "@webstudio-is/sdk";
 import { migratePages } from "@webstudio-is/project-migrations/pages";
-import { publishedProjectBundle } from "@webstudio-is/protocol";
+import { collectFontFamiliesFromStyleDecls } from "@webstudio-is/project-build/runtime/style-utils";
+import {
+  publishedProjectBundle,
+  type PublishedProjectBundle,
+} from "@webstudio-is/protocol";
 import { createAuthConfigResources, LOCAL_AUTH_FILE } from "./auth-config";
 import { LOCAL_DATA_FILE } from "./config";
 import {
@@ -53,15 +58,9 @@ import { htmlToJsx } from "./html-to-jsx";
 import { compareMedia } from "@webstudio-is/css-engine";
 import { materializeAssetFiles } from "./asset-files";
 import { formatZodIssues } from "./zod-utils";
-
-const createRemixFramework = async () =>
-  (await import("./framework-remix")).createFramework();
-
-const createReactRouterFramework = async () =>
-  (await import("./framework-react-router")).createFramework();
-
-const createVikeSsgFramework = async () =>
-  (await import("./framework-vike-ssg")).createFramework();
+import { createFramework as createRemixFramework } from "./framework-remix";
+import { createFramework as createReactRouterFramework } from "./framework-react-router";
+import { createFramework as createVikeSsgFramework } from "./framework-vike-ssg";
 
 type SiteDataByPage = {
   [id: Page["id"]]: {
@@ -105,8 +104,41 @@ const mergeJsonInto = async (sourcePath: string, destinationPath: string) => {
   await writeFile(destinationPath, content, "utf8");
 };
 
-const writeWsAuthResources = async (generatedDir: string, pages: Pages) => {
-  const { content, module } = createAuthConfigResources(pages);
+const readAssetBaseUrl = async (constantsPath: string) => {
+  const source = await readFile(constantsPath, "utf8");
+  const program = parse(source, {
+    ecmaVersion: "latest",
+    sourceType: "module",
+  });
+  for (const node of program.body) {
+    if (
+      node.type !== "ExportNamedDeclaration" ||
+      node.declaration?.type !== "VariableDeclaration"
+    ) {
+      continue;
+    }
+    for (const declaration of node.declaration.declarations) {
+      if (
+        declaration.id.type === "Identifier" &&
+        declaration.id.name === "assetBaseUrl" &&
+        declaration.init?.type === "Literal" &&
+        typeof declaration.init.value === "string"
+      ) {
+        return declaration.init.value;
+      }
+    }
+  }
+  throw new Error(
+    `Cannot read exported string assetBaseUrl from ${constantsPath}`
+  );
+};
+
+const writeWsAuthResources = async (
+  generatedDir: string,
+  pages: Pages,
+  projectSettings?: PublishedProjectBundle["build"]["projectSettings"]
+) => {
+  const { content, module } = createAuthConfigResources(pages, projectSettings);
   await createFolderIfNotExists(dirname(LOCAL_AUTH_FILE));
   await writeFile(LOCAL_AUTH_FILE, content);
   await createFileIfNotExists(
@@ -275,10 +307,7 @@ export const prebuild = async (options: {
     framework = await createRemixFramework();
   }
 
-  const constants: typeof import("../templates/defaults/app/constants.mjs") =
-    await import(pathToFileURL(join(cwd(), "app/constants.mjs")).href);
-
-  const { assetBaseUrl } = constants;
+  const assetBaseUrl = await readAssetBaseUrl(join(cwd(), "app/constants.mjs"));
 
   const loadedSiteData = await loadJSONFile<unknown>(LOCAL_DATA_FILE);
 
@@ -290,7 +319,7 @@ export const prebuild = async (options: {
   const parsedSiteData = publishedProjectBundle.safeParse(loadedSiteData);
   if (parsedSiteData.success === false) {
     throw new Error(
-      `Project bundle is invalid, please make sure the project is synced. Invalid fields: ${formatZodIssues(parsedSiteData.error.issues)}`
+      `Project bundle is invalid, please make sure the project is synced. Invalid fields: ${formatZodIssues(parsedSiteData.error.issues, loadedSiteData)}`
     );
   }
   const siteData = parsedSiteData.data;
@@ -300,7 +329,11 @@ export const prebuild = async (options: {
   );
   const pages = migratePages(siteData.build.pages);
   const allPages = getAllPages(pages);
-  await writeWsAuthResources(generatedDir, pages);
+  await writeWsAuthResources(
+    generatedDir,
+    pages,
+    siteData.build.projectSettings
+  );
   const siteDataByPage: SiteDataByPage = {};
   const fontAssetsByPage: Record<Page["id"], string[]> = {};
   const backgroundImageAssetsByPage: Record<Page["id"], string[]> = {};
@@ -385,24 +418,19 @@ export const prebuild = async (options: {
         .flat()
     );
 
-    const pageStyles = siteData.build?.styles?.filter(([, { styleSourceId }]) =>
-      pageStyleSourceIds.has(styleSourceId)
-    );
+    const pageStyles =
+      siteData.build?.styles
+        ?.filter(([, { styleSourceId }]) =>
+          pageStyleSourceIds.has(styleSourceId)
+        )
+        .map(([, style]) => style) ?? [];
 
     // Extract fonts
-    const pageFontFamilySet = new Set(
-      pageStyles
-        .filter(([, { property }]) => property === "fontFamily")
-        .map(([, { value }]) =>
-          value.type === "fontFamily" ? value.value : undefined
-        )
-        .flat()
-        .filter(<T>(value: T): value is NonNullable<T> => value !== undefined)
-    );
+    const pageFontFamilies = collectFontFamiliesFromStyleDecls(pageStyles);
 
     const pageFontAssets = siteData.assets
       .filter((asset) => asset.type === "font")
-      .filter((fontAsset) => pageFontFamilySet.has(fontAsset.meta.family))
+      .filter((fontAsset) => pageFontFamilies.has(fontAsset.meta.family))
       .map((asset) => asset.name);
 
     fontAssetsByPage[page.id] = pageFontAssets;
@@ -411,8 +439,8 @@ export const prebuild = async (options: {
     // backgroundImage => "value.type=="layers" => value.type == "image" => .value (assetId)
     const backgroundImageAssetIdSet = new Set(
       pageStyles
-        .filter(([, { property }]) => property === "backgroundImage")
-        .map(([, { value }]) =>
+        .filter(({ property }) => property === "backgroundImage")
+        .map(({ value }) =>
           value.type === "layers"
             ? value.value.map((layer) =>
                 layer.type === "image"
@@ -455,7 +483,10 @@ export const prebuild = async (options: {
     // pass only used metas to not generate unused preset styles
     componentMetas: usedMetas,
     assetBaseUrl,
-    atomic: pages.compiler?.atomicStyles ?? true,
+    atomic:
+      siteData.build.projectSettings?.compiler.atomicStyles ??
+      pages.compiler?.atomicStyles ??
+      true,
   });
 
   await createFileIfNotExists(join(generatedDir, "index.css"), cssText);
@@ -568,7 +599,7 @@ export const prebuild = async (options: {
       tagsOverrides: framework.tags,
     });
 
-    const projectMeta = pages.meta;
+    const projectMeta = siteData.build.projectSettings?.meta ?? pages.meta;
     const contactEmail: undefined | string =
       // fallback to user email when contact email is empty string
       projectMeta?.contactEmail || siteData.user?.email || undefined;
