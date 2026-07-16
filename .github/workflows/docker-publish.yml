@@ -63,6 +63,10 @@ jobs:
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
+        env:
+          # The per-platform summary would only show an untagged digest push —
+          # the merge job writes the real summary with the final tags.
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           file: apps/builder/Dockerfile
@@ -161,3 +165,16 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}"
+
+      - name: Write job summary
+        run: |
+          digest=$(docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}" --format '{{ .Manifest.Digest }}')
+          {
+            echo "### 🐳 Image published to GHCR"
+            echo ""
+            echo "| Tag | Pull command |"
+            echo "|-----|--------------|"
+            jq -r '.tags[] | "| [`\(.)`](https://github.com/${{ github.repository }}/pkgs/container/builder) | `docker pull \(.)` |"' <<< "$DOCKER_METADATA_OUTPUT_JSON"
+            echo ""
+            echo "**Digest**: \`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
