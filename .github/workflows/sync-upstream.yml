@@ -1,0 +1,209 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 8 * * 1' # every Monday at 8am UTC
+  workflow_dispatch:
+
+jobs:
+  sync-main:
+    name: Sync main with upstream
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      has_new_commits: ${{ steps.sync.outputs.has_new_commits }}
+      develop_needs_rebase: ${{ steps.sync.outputs.develop_needs_rebase }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync with upstream
+        id: sync
+        run: |
+          git remote add upstream https://github.com/webstudio-is/webstudio.git
+          git fetch upstream main
+          BEFORE=$(git rev-parse HEAD)
+          git reset --hard upstream/main
+          AFTER=$(git rev-parse HEAD)
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            git push --force-with-lease origin main
+            echo "main synced with upstream"
+          else
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            echo "main already up to date"
+          fi
+
+          if git merge-base --is-ancestor origin/main origin/develop 2>/dev/null; then
+            echo "develop_needs_rebase=false" >> "$GITHUB_OUTPUT"
+            echo "develop already based on main"
+          else
+            echo "develop_needs_rebase=true" >> "$GITHUB_OUTPUT"
+            echo "develop needs rebase onto main"
+          fi
+
+  rebase-develop:
+    name: Rebase develop onto main
+    needs: sync-main
+    if: needs.sync-main.outputs.has_new_commits == 'true' || needs.sync-main.outputs.develop_needs_rebase == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Backup develop before rewrite
+        run: |
+          TAG="backup/develop-$(date +%Y%m%d-%H%M)"
+          git tag "$TAG" origin/develop
+          git push origin "$TAG"
+          echo "backup tag: $TAG"
+
+      - name: Rebase develop onto main
+        id: rebase
+        continue-on-error: true
+        run: |
+          git fetch origin main
+
+          # The fixture bundleVersion stamp is a schema-hash that both sides
+          # regenerate, so it conflicts on nearly every sync even though it is
+          # not real content — the re-stamp step below recomputes it. Auto-take
+          # upstream for those files ONLY; anything else needs a human.
+          fixture_stamp='^fixtures/[^/]+/\.webstudio/data\.json$'
+          resolve_fixture_conflicts() {
+            while true; do
+              conflicts="$(git diff --name-only --diff-filter=U)"
+              # Any conflicted path that is NOT a fixture stamp (or no conflict
+              # at all) -> stop, let the caller abort and open an issue.
+              non_fixture="$(printf '%s\n' "$conflicts" \
+                | grep -vE "$fixture_stamp" || true)"
+              if [ -z "$conflicts" ] || [ -n "$non_fixture" ]; then
+                return 1
+              fi
+              # NOTE: during a rebase --ours/--theirs are inverted vs a merge:
+              # --ours = the new base (upstream), --theirs = the replayed fork
+              # commit. We want upstream's stamp here, so --ours.
+              printf '%s\n' "$conflicts" | while IFS= read -r f; do
+                git checkout --ours -- "$f" && git add -- "$f"
+              done
+              # Taking upstream can leave the stamp-only commit empty -> skip it.
+              if git diff --cached --quiet; then
+                GIT_EDITOR=true git rebase --skip && return 0
+              else
+                GIT_EDITOR=true git rebase --continue && return 0
+              fi
+              # Rebase paused again on a later commit -> loop and re-evaluate.
+            done
+          }
+
+          # Snapshot the patch series (titles) before rewrite, ignoring the
+          # fixture re-stamp commit (it is regenerated below and may be dropped
+          # as empty during the rebase — that is expected, not a lost patch).
+          git log origin/main..HEAD --format="%s" | grep -viE 're-?stamp' \
+            > /tmp/titles-before || true
+
+          echo "Patch series before rebase:"
+          cat /tmp/titles-before
+
+          if git rebase origin/main; then
+            rebase_ok=1
+          elif resolve_fixture_conflicts; then
+            rebase_ok=1
+          else
+            rebase_ok=0
+          fi
+
+          if [ "$rebase_ok" -ne 1 ]; then
+            git diff --name-only --diff-filter=U > /tmp/conflict-files || true
+            {
+              echo "conflict_files<<EOF"
+              cat /tmp/conflict-files
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            git rebase --abort || true
+            exit 1
+          fi
+
+          # Sanity check: same patch titles before and after (re-stamp commit
+          # excluded above). A mismatch usually means git dropped a real patch
+          # that became empty (change accepted upstream) — a human decision.
+          git log origin/main..HEAD --format="%s" | grep -viE 're-?stamp' \
+            > /tmp/titles-after || true
+          if ! diff -u /tmp/titles-before /tmp/titles-after; then
+            echo "ERROR: patch series changed during rebase (see diff above)."
+            echo "If a patch was upstreamed, drop it explicitly and update COMMUNITY_CHANGES.md."
+            exit 1
+          fi
+
+          git push --force-with-lease origin develop
+
+      # After a clean rebase, the fork's schema patches may have moved the
+      # bundleVersion contract hash away from the (upstream-generated) fixture
+      # stamps, which would fail packages/protocol/fixtures.test.ts. Re-stamp
+      # them deterministically so develop stays green with no manual step.
+      # See packages/protocol/scripts/restamp-fixtures.ts.
+      - uses: ./.github/actions/ci-setup
+        if: steps.rebase.outcome == 'success'
+
+      - name: Re-stamp fixtures for fork schema
+        if: steps.rebase.outcome == 'success'
+        run: |
+          pnpm fixtures:restamp
+          if git diff --quiet; then
+            echo "Fixture bundleVersion already current."
+          else
+            git commit -am "chore(fixtures): re-stamp bundleVersion for fork schema"
+            git push origin develop
+          fi
+
+      - name: Open issue on rebase failure
+        if: steps.rebase.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          gh issue create \
+            --title "sync: rebase of develop onto upstream failed ($(date +%Y-%m-%d))" \
+            --label "sync-conflict" \
+            --body "The automatic rebase of the \`develop\` patch series onto \`main\` failed.
+
+          Conflicting files (empty if the failure was the patch-series sanity check — see the workflow run log):
+
+          \`\`\`
+          ${{ steps.rebase.outputs.conflict_files }}
+          \`\`\`
+
+          To resolve locally:
+
+          \`\`\`bash
+          git fetch origin
+          git checkout develop
+          git rebase origin/main
+          # resolve each conflict by adapting the fork patch to the new upstream code
+          # (patch intents are listed in COMMUNITY_CHANGES.md), then:
+          git push --force-with-lease origin develop
+          \`\`\`
+
+          A backup tag of the pre-rebase state was pushed (see the workflow run log)."
+
+      - name: Fail if rebase did not succeed
+        if: steps.rebase.outcome == 'failure'
+        run: exit 1
