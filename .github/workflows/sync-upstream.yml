@@ -13,7 +13,7 @@ jobs:
       contents: write
     outputs:
       has_new_commits: ${{ steps.sync.outputs.has_new_commits }}
-      develop_needs_merge: ${{ steps.sync.outputs.develop_needs_merge }}
+      develop_needs_rebase: ${{ steps.sync.outputs.develop_needs_rebase }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,21 +44,21 @@ jobs:
           fi
 
           if git merge-base --is-ancestor origin/main origin/develop 2>/dev/null; then
-            echo "develop_needs_merge=false" >> "$GITHUB_OUTPUT"
-            echo "develop already up to date with main"
+            echo "develop_needs_rebase=false" >> "$GITHUB_OUTPUT"
+            echo "develop already based on main"
           else
-            echo "develop_needs_merge=true" >> "$GITHUB_OUTPUT"
-            echo "develop needs merge with main"
+            echo "develop_needs_rebase=true" >> "$GITHUB_OUTPUT"
+            echo "develop needs rebase onto main"
           fi
 
-  merge-develop:
-    name: Merge main into develop
+  rebase-develop:
+    name: Rebase develop onto main
     needs: sync-main
-    if: needs.sync-main.outputs.has_new_commits == 'true' || needs.sync-main.outputs.develop_needs_merge == 'true'
+    if: needs.sync-main.outputs.has_new_commits == 'true' || needs.sync-main.outputs.develop_needs_rebase == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,65 +71,78 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Merge main into develop
-        id: merge
+      - name: Backup develop before rewrite
+        run: |
+          TAG="backup/develop-$(date +%Y%m%d-%H%M)"
+          git tag "$TAG" origin/develop
+          git push origin "$TAG"
+          echo "backup tag: $TAG"
+
+      - name: Rebase develop onto main
+        id: rebase
         continue-on-error: true
         run: |
           git fetch origin main
 
-          # Snapshot custom commits (in develop but not in main) before merge
-          CUSTOM_BEFORE=$(git log origin/main..HEAD --format="%H %s")
-          if [ -n "$CUSTOM_BEFORE" ]; then
-            echo "Custom commits to preserve:"
-            echo "$CUSTOM_BEFORE"
-          fi
+          # Snapshot the patch series (titles) before rewrite
+          git log origin/main..HEAD --format="%s" > /tmp/titles-before
 
-          # Attempt merge — no history rewrite, no commit can be dropped
-          git merge origin/main --no-edit
+          echo "Patch series before rebase:"
+          cat /tmp/titles-before
 
-          # Verify every custom commit is still reachable from the new HEAD
-          MISSING=""
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            SHA=$(echo "$line" | cut -d' ' -f1)
-            if ! git merge-base --is-ancestor "$SHA" HEAD 2>/dev/null; then
-              MISSING="$MISSING\n- $line"
-            fi
-          done <<< "$CUSTOM_BEFORE"
-
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: the following custom commits are unreachable after merge:"
-            printf "%b\n" "$MISSING"
+          # Never auto-resolve: any conflict aborts (handled in next step)
+          if ! git rebase origin/main; then
+            git diff --name-only --diff-filter=U > /tmp/conflict-files || true
+            {
+              echo "conflict_files<<EOF"
+              cat /tmp/conflict-files
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            git rebase --abort || true
             exit 1
           fi
 
-          git push origin develop
+          # Sanity check: same patch titles before and after.
+          # A mismatch usually means git dropped a patch that became empty
+          # (change accepted upstream) — this must be a human decision.
+          git log origin/main..HEAD --format="%s" > /tmp/titles-after
+          if ! diff -u /tmp/titles-before /tmp/titles-after; then
+            echo "ERROR: patch series changed during rebase (see diff above)."
+            echo "If a patch was upstreamed, drop it explicitly and update COMMUNITY_CHANGES.md."
+            exit 1
+          fi
 
-      - name: Create PR on merge conflict
-        if: steps.merge.outcome == 'failure'
+          git push --force-with-lease origin develop
+
+      - name: Open issue on rebase failure
+        if: steps.rebase.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
         run: |
-          git merge --abort || true
-          BRANCH="sync/upstream-$(date +%Y%m%d)"
-          git checkout -b "$BRANCH" origin/main
-          git push origin "$BRANCH"
-          gh pr create \
-            --title "chore(sync): merge upstream into develop (conflicts to resolve)" \
-            --body "The automatic merge of \`main\` into \`develop\` failed due to conflicts.
+          gh issue create \
+            --title "sync: rebase of develop onto upstream failed ($(date +%Y-%m-%d))" \
+            --label "sync-conflict" \
+            --body "The automatic rebase of the \`develop\` patch series onto \`main\` failed.
 
-          Please resolve the conflicts locally:
+          Conflicting files (empty if the failure was the patch-series sanity check — see the workflow run log):
+
+          \`\`\`
+          ${{ steps.rebase.outputs.conflict_files }}
+          \`\`\`
+
+          To resolve locally:
 
           \`\`\`bash
           git fetch origin
           git checkout develop
-          git merge origin/main
-          # resolve conflicts, then:
-          git push origin develop
-          \`\`\`" \
-            --base develop \
-            --head "$BRANCH"
+          git rebase origin/main
+          # resolve each conflict by adapting the fork patch to the new upstream code
+          # (patch intents are listed in COMMUNITY_CHANGES.md), then:
+          git push --force-with-lease origin develop
+          \`\`\`
 
-      - name: Fail if merge did not succeed
-        if: steps.merge.outcome == 'failure'
+          A backup tag of the pre-rebase state was pushed (see the workflow run log)."
+
+      - name: Fail if rebase did not succeed
+        if: steps.rebase.outcome == 'failure'
         run: exit 1
