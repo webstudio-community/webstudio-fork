@@ -70,6 +70,7 @@ export const publishedProjectBundle = projectBundle.extend({
   user: z.object({ email: z.string().nullable() }).optional(),
   projectDomain: z.string(),
   projectTitle: z.string(),
+  customDomains: z.array(z.string()).optional(),
 });
 export type PublishedProjectBundle = z.infer<typeof publishedProjectBundle>;
 
