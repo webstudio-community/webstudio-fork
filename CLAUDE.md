@@ -93,8 +93,8 @@ docker compose up -d
 
 This starts:
 
-- **PostgreSQL 15** (Supabase image) on port `5432`
-- **PostgREST v12** on port `3000` (shares db network via `network_mode: service:db`)
+- **PostgreSQL 15** (Supabase image) published on `PGPORT` (`55432` in `.env`, defaults to `5432`)
+- **PostgREST v12** published on `POSTGREST_PORT` (`55433` in `.env`, defaults to `3000`; shares db network via `network_mode: service:db`)
 
 > If you have a local PostgreSQL service on Windows, stop it first: `Stop-Service postgresql-x64-17`
 
