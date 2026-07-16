@@ -48,6 +48,10 @@ Additions on the `develop` branch versus [webstudio-is/webstudio](https://github
 | [`b04cb67`](../../commit/b04cb678c) | Always run `merge-develop` when `develop` is behind `main`         |
 | [`d4ce6dc`](../../commit/d4ce6dc9d) | Prefix Docker image tag on branch dispatch; cleanup on PR close    |
 | [`2e41f0a`](../../commit/2e41f0adb) | Build Docker image on PR open/push with `pr-<N>` tag               |
+| [`d29ed90`](../../commit/d29ed9048) | Update fixture `bundleVersion` after 2026-07-13 upstream schema changes (redo after each schema-changing sync) |
+| [`8b74cb6`](../../commit/8b74cb61f) | e2e overlay: `!reset` the inherited db volume (fork compose uses a named volume, upstream does not) |
+| [`1447adc`](../../commit/1447adccf) | Align fork supabase compose with upstream e2e scripts (`POSTGRES_USER`, service renamed `rest`→`postgrest`); CI e2e bootstraps from prisma migrations (pg16 snapshot incompatible with supabase pg15) |
+| [`7da6589`](../../commit/7da6589c5) | Publish PostgREST on `${POSTGREST_PORT}`; gate db wait on TCP in `dev/backend.sh` (upstream candidate — same latent race exists there) |
 
 ## Technical Debt
 
