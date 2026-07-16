@@ -1,0 +1,49 @@
+name: Docker — Cleanup PR images
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  cleanup:
+    name: Delete branch image tag and prune untagged
+    runs-on: ubuntu-24.04
+
+    permissions:
+      packages: write
+
+    steps:
+      - name: Compute branch tag
+        if: github.event_name == 'pull_request'
+        id: branch
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          SAFE=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
+          echo "tag=$SAFE" >> "$GITHUB_OUTPUT"
+
+      # Deletes the tag and its platform children (multi-arch aware), unlike
+      # the previous curl script which left the per-arch images orphaned.
+      - name: Delete branch image tag
+        if: github.event_name == 'pull_request'
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: builder
+          delete-tags: ${{ steps.branch.outputs.tag }}
+
+      # Full sweep, manual only — PR close cleans just its own images (above).
+      # Each build pushes per-arch images by digest; retagging (e.g. moving
+      # `latest` on develop pushes) strands the previous manifest and its
+      # children as untagged versions. `older-than` skips digests just pushed
+      # by an in-flight build, whose manifest is not tagged yet.
+      - name: Prune untagged images
+        if: github.event_name == 'workflow_dispatch'
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: builder
+          delete-untagged: true
+          older-than: 1 hour
+          validate: true

@@ -1,0 +1,283 @@
+name: Docker — Build & Publish
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    types: [opened, synchronize, reopened]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/builder
+
+jobs:
+  # Each platform builds on its native runner (no QEMU — the emulated arm64
+  # pnpm install hangs since the upstream oxc/rolldown/TS7 toolchain
+  # migration) and pushes an untagged image by digest. The merge job then
+  # assembles the multi-arch manifest from those digests.
+  build:
+    name: Build builder image (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    permissions:
+      contents: read
+      packages: write   # required for ghcr.io push
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # "linux/amd64" → "linux-amd64" for artifact names and cache scopes
+      - name: Prepare platform pair
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Login to GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        env:
+          # The per-platform summary would only show an untagged digest push —
+          # the merge job writes the real summary with the final tags.
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          file: apps/builder/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+            type=gha,scope=develop-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge & push manifest
+    runs-on: ubuntu-24.04
+    needs: build
+
+    permissions:
+      contents: read
+      packages: write   # required for ghcr.io push
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Login to GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Sanitize branch name for use as image tag (pull_request and workflow_dispatch)
+      - name: Compute branch tag
+        id: branch
+        run: |
+          # For PR events GITHUB_REF_NAME is "N/merge" — use head_ref instead
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH="${{ github.head_ref }}"
+          else
+            BRANCH="${GITHUB_REF_NAME}"
+          fi
+          SAFE=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
+          if [[ "$BRANCH" == "develop" ]]; then
+            echo "is_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$SAFE" >> "$GITHUB_OUTPUT"
+
+      # Derive image tags:
+      #   push to develop                        → :latest
+      #   workflow_dispatch on develop           → :latest
+      #   workflow_dispatch on other branch      → :<sanitized-branch>
+      #   pull_request                           → :<sanitized-branch>
+      #   published release                      → :<version> + :latest
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true') }}
+            type=raw,value=${{ steps.branch.outputs.tag }},enable=${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') && steps.branch.outputs.is_main == 'false' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+
+      # Retagging strands the previous manifest and its per-arch children as
+      # untagged versions (each develop push moves `latest`, each PR push
+      # moves the branch tag). Record what the tags point to now, so the
+      # prune step below can delete exactly what this run dethrones.
+      - name: Capture previous tag digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+          > "${{ runner.temp }}/previous-digests.txt"
+          for TAG in $(jq -r '.tags[] | split(":") | last' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+            # tag may not exist yet (first push of a branch) — skip quietly
+            DIGEST=$(curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" \
+              "$MANIFEST_URL/$TAG" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')
+            [ -z "$DIGEST" ] && continue
+            echo "$DIGEST" >> "${{ runner.temp }}/previous-digests.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/previous-digests.txt"
+          done
+          sort -u -o "${{ runner.temp }}/previous-digests.txt" "${{ runner.temp }}/previous-digests.txt"
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf -- "$REGISTRY_IMAGE@sha256:%s " *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}"
+
+      # Delete the versions this run just dethroned. A digest is only deleted
+      # if no tag in the registry still references it (identical rebuilds and
+      # children shared with other tags survive).
+      - name: Prune dethroned versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CANDIDATES="${{ runner.temp }}/previous-digests.txt"
+          [ -s "$CANDIDATES" ] || { echo "No previous versions to prune"; exit 0; }
+
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+
+          # every digest still referenced by a tag (manifest + children)
+          > "${{ runner.temp }}/referenced.txt"
+          for TAG in $(curl -fsSL -H "Authorization: Bearer $REG_TOKEN" \
+              "https://ghcr.io/v2/${{ github.repository_owner }}/builder/tags/list" | jq -r '.tags[]'); do
+            curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}' >> "${{ runner.temp }}/referenced.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/referenced.txt"
+          done
+
+          gh api "orgs/${{ github.repository_owner }}/packages/container/builder/versions?per_page=100" \
+            --paginate --jq '.[] | (.id|tostring) + " " + .name' > "${{ runner.temp }}/versions.txt"
+
+          while read -r DIGEST; do
+            if grep -qxF "$DIGEST" "${{ runner.temp }}/referenced.txt"; then
+              echo "Still referenced, keeping: $DIGEST"
+              continue
+            fi
+            ID=$(awk -v d="$DIGEST" '$2==d{print $1}' "${{ runner.temp }}/versions.txt")
+            if [ -n "$ID" ]; then
+              gh api -X DELETE "orgs/${{ github.repository_owner }}/packages/container/builder/versions/$ID" --silent
+              echo "Deleted dethroned version: $DIGEST"
+            fi
+          done < "$CANDIDATES"
+
+      - name: Write job summary
+        run: |
+          digest=$(docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}" --format '{{ .Manifest.Digest }}')
+          {
+            echo "### 🐳 Image published to GHCR"
+            echo ""
+            echo "| Tag | Pull command |"
+            echo "|-----|--------------|"
+            jq -r '.tags[] | "| [`\(.)`](https://github.com/${{ github.repository }}/pkgs/container/builder) | `docker pull \(.)` |"' <<< "$DOCKER_METADATA_OUTPUT_JSON"
+            echo ""
+            echo "**Digest**: \`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # When this run pushed builder:latest, trigger the publisher to rebuild so
+      # its bundled CLI is re-pinned to this new builder commit (CLI ↔ builder
+      # lockstep — the publisher reads builder:latest's revision at build time).
+      # Requires a GitHub App with `actions: write` on the publisher repo, exposed
+      # via the PUBLISHER_DISPATCH_APP_* secrets. Skips cleanly when unset (forks).
+      # `secrets` can't be used in `if:`, so the presence check runs in a step.
+      - name: Check publisher dispatch is configured
+        id: publisher-dispatch
+        if: ${{ github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true') }}
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "PUBLISHER_DISPATCH_APP_ID not set — skipping publisher trigger."
+          fi
+
+      - name: Generate token to trigger publisher
+        id: publisher-token
+        if: ${{ steps.publisher-dispatch.outputs.enabled == 'true' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.PUBLISHER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: webstudio-publisher
+
+      - name: Trigger publisher rebuild
+        if: ${{ steps.publisher-token.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+        run: |
+          gh workflow run docker-publish.yml \
+            -R "${{ github.repository_owner }}/webstudio-publisher" \
+            --ref main
+          echo "Triggered publisher rebuild (CLI will re-pin to this builder commit)."
