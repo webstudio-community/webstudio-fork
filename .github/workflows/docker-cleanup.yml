@@ -3,13 +3,14 @@ name: Docker — Cleanup PR images
 on:
   pull_request:
     types: [closed]
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   cleanup:
-    name: Delete branch image tag
+    name: Delete branch image tag and prune untagged
     runs-on: ubuntu-24.04
 
     permissions:
@@ -17,32 +18,32 @@ jobs:
 
     steps:
       - name: Compute branch tag
+        if: github.event_name == 'pull_request'
         id: branch
         run: |
           BRANCH="${{ github.head_ref }}"
           SAFE=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
           echo "tag=$SAFE" >> "$GITHUB_OUTPUT"
 
-      - name: Delete GHCR image version for branch tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
-          TAG: ${{ steps.branch.outputs.tag }}
-        run: |
-          VERSIONS=$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/orgs/${OWNER}/packages/container/builder/versions?per_page=100")
+      # Deletes the tag and its platform children (multi-arch aware), unlike
+      # the previous curl script which left the per-arch images orphaned.
+      - name: Delete branch image tag
+        if: github.event_name == 'pull_request'
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: builder
+          delete-tags: ${{ steps.branch.outputs.tag }}
 
-          VERSION_ID=$(echo "$VERSIONS" | jq -r --arg TAG "$TAG" \
-            '.[] | select(.metadata.container.tags != null and (.metadata.container.tags[] == $TAG)) | .id')
-
-          if [ -n "$VERSION_ID" ]; then
-            curl -fsSL -X DELETE \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/orgs/${OWNER}/packages/container/builder/versions/${VERSION_ID}"
-            echo "Deleted version ${VERSION_ID} (tag: ${TAG})"
-          else
-            echo "No image found with tag '${TAG}', nothing to delete"
-          fi
+      # Each build pushes per-arch images by digest; retagging (e.g. moving
+      # `latest` on develop pushes) strands the previous manifest and its
+      # children as untagged versions. Sweep them here. `older-than` skips
+      # digests just pushed by an in-flight build (the develop build starts
+      # right when the PR merges) — anything it leaves behind is swept on the
+      # next PR close or a manual dispatch.
+      - name: Prune untagged images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: builder
+          delete-untagged: true
+          older-than: 1 hour
+          validate: true

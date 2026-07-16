@@ -54,6 +54,7 @@ Additions on the `develop` branch versus [webstudio-is/webstudio](https://github
 | [`1447adc`](../../commit/1447adccf) | Align fork supabase compose with upstream e2e scripts (`POSTGRES_USER`, service renamed `rest`→`postgrest`); CI e2e bootstraps from prisma migrations (pg16 snapshot incompatible with supabase pg15) |
 | [`7da6589`](../../commit/7da6589c5) | Publish PostgREST on `${POSTGREST_PORT}`; gate db wait on TCP in `dev/backend.sh` (upstream candidate — same latent race exists there)                                                                |
 | [`b72b045`](../../commit/b72b045b5) | Docker build: native runners per platform (QEMU arm64 hangs on Go/Rust toolchain since upstream oxc/TS7 migration); merge job assembles manifest + writes GHCR tag summary                            |
+| TBD                                 | GHCR cleanup via `ghcr-cleanup-action`: delete branch tag with its per-arch children + prune untagged orphans on PR close (curl script left children stranded)                                        |
 
 ## Technical Debt
 
