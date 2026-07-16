@@ -9,13 +9,14 @@ Additions on the `develop` branch versus [webstudio-is/webstudio](https://github
 
 ## Self-hosting & Docker
 
-| Commit                              | Description                                                        |
-| ----------------------------------- | ------------------------------------------------------------------ |
-| [`a61da5f`](../../commit/a61da5f30) | Add Docker build support and CI workflows                          |
-| [`0ac7314`](../../commit/0ac731433) | Fix missing deps and build config for Docker                       |
-| [`8468bc3`](../../commit/8468bc34d) | Fix MinIO S3 upload compatibility (`node:http` instead of `fetch`) |
-| [`9db9f5b`](../../commit/9db9f5b2e) | Fix MinIO SigV4 signer: include port in signed URL                 |
-| [`565c79c`](../../commit/565c79c3d) | Fix `updateStatus` re-verify using Domain + ProjectDomain tables   |
+| Commit                              | Description                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [`a61da5f`](../../commit/a61da5f30) | Add Docker build support and CI workflows                                                            |
+| [`0ac7314`](../../commit/0ac731433) | Fix missing deps and build config for Docker                                                         |
+| [`8468bc3`](../../commit/8468bc34d) | Fix MinIO S3 upload compatibility (`node:http` instead of `fetch`)                                   |
+| [`9db9f5b`](../../commit/9db9f5b2e) | Fix MinIO SigV4 signer: include port in signed URL                                                   |
+| [`565c79c`](../../commit/565c79c3d) | Fix `updateStatus` re-verify using Domain + ProjectDomain tables                                     |
+| TBD                                 | Add `esbuild` as direct builder dep (missing top-level symlink in `pnpm deploy --prod` Docker image) |
 
 ## Custom Domains
 
