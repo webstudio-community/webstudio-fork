@@ -75,6 +75,7 @@ export const publishedProjectBundle = projectBundle.extend({
   projectDomain: z.string(),
   projectTitle: z.string(),
   assetIndex: contentArtifactV1.optional(),
+  customDomains: z.array(z.string()).optional(),
 });
 export type PublishedProjectBundle = z.infer<typeof publishedProjectBundle>;
 
