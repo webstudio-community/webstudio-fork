@@ -1,0 +1,135 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 8 * * 1' # every Monday at 8am UTC
+  workflow_dispatch:
+
+jobs:
+  sync-main:
+    name: Sync main with upstream
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      has_new_commits: ${{ steps.sync.outputs.has_new_commits }}
+      develop_needs_merge: ${{ steps.sync.outputs.develop_needs_merge }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync with upstream
+        id: sync
+        run: |
+          git remote add upstream https://github.com/webstudio-is/webstudio.git
+          git fetch upstream main
+          BEFORE=$(git rev-parse HEAD)
+          git reset --hard upstream/main
+          AFTER=$(git rev-parse HEAD)
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            git push --force-with-lease origin main
+            echo "main synced with upstream"
+          else
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            echo "main already up to date"
+          fi
+
+          if git merge-base --is-ancestor origin/main origin/develop 2>/dev/null; then
+            echo "develop_needs_merge=false" >> "$GITHUB_OUTPUT"
+            echo "develop already up to date with main"
+          else
+            echo "develop_needs_merge=true" >> "$GITHUB_OUTPUT"
+            echo "develop needs merge with main"
+          fi
+
+  merge-develop:
+    name: Merge main into develop
+    needs: sync-main
+    if: needs.sync-main.outputs.has_new_commits == 'true' || needs.sync-main.outputs.develop_needs_merge == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge main into develop
+        id: merge
+        continue-on-error: true
+        run: |
+          git fetch origin main
+
+          # Snapshot custom commits (in develop but not in main) before merge
+          CUSTOM_BEFORE=$(git log origin/main..HEAD --format="%H %s")
+          if [ -n "$CUSTOM_BEFORE" ]; then
+            echo "Custom commits to preserve:"
+            echo "$CUSTOM_BEFORE"
+          fi
+
+          # Attempt merge — no history rewrite, no commit can be dropped
+          git merge origin/main --no-edit
+
+          # Verify every custom commit is still reachable from the new HEAD
+          MISSING=""
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            SHA=$(echo "$line" | cut -d' ' -f1)
+            if ! git merge-base --is-ancestor "$SHA" HEAD 2>/dev/null; then
+              MISSING="$MISSING\n- $line"
+            fi
+          done <<< "$CUSTOM_BEFORE"
+
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: the following custom commits are unreachable after merge:"
+            printf "%b\n" "$MISSING"
+            exit 1
+          fi
+
+          git push origin develop
+
+      - name: Create PR on merge conflict
+        if: steps.merge.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          git merge --abort || true
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH" origin/main
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore(sync): merge upstream into develop (conflicts to resolve)" \
+            --body "The automatic merge of \`main\` into \`develop\` failed due to conflicts.
+
+          Please resolve the conflicts locally:
+
+          \`\`\`bash
+          git fetch origin
+          git checkout develop
+          git merge origin/main
+          # resolve conflicts, then:
+          git push origin develop
+          \`\`\`" \
+            --base develop \
+            --head "$BRANCH"
+
+      - name: Fail if merge did not succeed
+        if: steps.merge.outcome == 'failure'
+        run: exit 1
