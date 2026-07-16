@@ -1,4 +1,8 @@
 services:
   db:
+    # The base compose mounts the named "db" volume at the same target, which
+    # conflicts with tmpfs ("already mounted"). Drop the inherited volume so
+    # e2e runs on a throwaway tmpfs database.
+    volumes: !reset []
     tmpfs:
       - /var/lib/postgresql/data
