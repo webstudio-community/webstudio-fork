@@ -268,6 +268,14 @@ const addProjectMetadata = async (
 
   options.onMdxTemplateOmissions?.(mdxTemplateOmissions);
 
+  const deployment = data.build.deployment;
+  const customDomains =
+    deployment !== undefined && deployment.destination !== "static"
+      ? deployment.domains.filter(
+          (d) => d !== project.domain && d.includes(".")
+        )
+      : [];
+
   return {
     ...data,
     assets: publishedAssets,
@@ -277,6 +285,7 @@ const addProjectMetadata = async (
     projectDomain: project.domain,
     projectTitle: project.title,
     assetIndex,
+    customDomains,
   };
 };
 
