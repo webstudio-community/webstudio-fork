@@ -153,12 +153,21 @@ const addProjectMetadata = async (
       ? undefined
       : await getUserById(context, project.userId);
 
+  const deployment = data.build.deployment;
+  const customDomains =
+    deployment !== undefined && deployment.destination !== "static"
+      ? deployment.domains.filter(
+          (d) => d !== project.domain && d.includes(".")
+        )
+      : [];
+
   return {
     ...data,
     bundleVersion,
     user: user ? { email: user.email } : undefined,
     projectDomain: project.domain,
     projectTitle: project.title,
+    customDomains,
   };
 };
 
