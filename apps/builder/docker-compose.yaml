@@ -8,6 +8,10 @@ services:
     # command: ["postgres", "-c", "log_statement=all", "-c", "listen_addresses=*"]
     restart: unless-stopped
     environment:
+      # POSTGRES_USER must be set in the container: dev/backend.sh runs
+      # psql -U "$POSTGRES_USER" inside it (unset falls back to the OS user
+      # "root", rejected by the supabase image's peer auth usermap)
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: webstudio
     volumes:
@@ -21,7 +25,8 @@ services:
       timeout: 5s
       retries: 25
 
-  rest:
+  # Named "postgrest" to match dev/backend.sh (compose up -d postgrest)
+  postgrest:
     image: postgrest/postgrest:v12.2.0
     depends_on:
       db:
