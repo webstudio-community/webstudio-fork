@@ -90,4 +90,6 @@ export const Radio = forwardRef(
 );
 Radio.displayName = "Radio";
 
-export const RadioGroup = Primitive.Root;
+export const RadioGroup = Object.assign(Primitive.Root, {
+  Item: Primitive.Item,
+});
