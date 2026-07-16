@@ -155,6 +155,30 @@ jobs:
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
 
+      # Retagging strands the previous manifest and its per-arch children as
+      # untagged versions (each develop push moves `latest`, each PR push
+      # moves the branch tag). Record what the tags point to now, so the
+      # prune step below can delete exactly what this run dethrones.
+      - name: Capture previous tag digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+          > "${{ runner.temp }}/previous-digests.txt"
+          for TAG in $(jq -r '.tags[] | split(":") | last' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+            # tag may not exist yet (first push of a branch) — skip quietly
+            DIGEST=$(curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" \
+              "$MANIFEST_URL/$TAG" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')
+            [ -z "$DIGEST" ] && continue
+            echo "$DIGEST" >> "${{ runner.temp }}/previous-digests.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/previous-digests.txt"
+          done
+          sort -u -o "${{ runner.temp }}/previous-digests.txt" "${{ runner.temp }}/previous-digests.txt"
+
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -165,6 +189,46 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}"
+
+      # Delete the versions this run just dethroned. A digest is only deleted
+      # if no tag in the registry still references it (identical rebuilds and
+      # children shared with other tags survive).
+      - name: Prune dethroned versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CANDIDATES="${{ runner.temp }}/previous-digests.txt"
+          [ -s "$CANDIDATES" ] || { echo "No previous versions to prune"; exit 0; }
+
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+
+          # every digest still referenced by a tag (manifest + children)
+          > "${{ runner.temp }}/referenced.txt"
+          for TAG in $(curl -fsSL -H "Authorization: Bearer $REG_TOKEN" \
+              "https://ghcr.io/v2/${{ github.repository_owner }}/builder/tags/list" | jq -r '.tags[]'); do
+            curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}' >> "${{ runner.temp }}/referenced.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/referenced.txt"
+          done
+
+          gh api "orgs/${{ github.repository_owner }}/packages/container/builder/versions?per_page=100" \
+            --paginate --jq '.[] | (.id|tostring) + " " + .name' > "${{ runner.temp }}/versions.txt"
+
+          while read -r DIGEST; do
+            if grep -qxF "$DIGEST" "${{ runner.temp }}/referenced.txt"; then
+              echo "Still referenced, keeping: $DIGEST"
+              continue
+            fi
+            ID=$(awk -v d="$DIGEST" '$2==d{print $1}' "${{ runner.temp }}/versions.txt")
+            if [ -n "$ID" ]; then
+              gh api -X DELETE "orgs/${{ github.repository_owner }}/packages/container/builder/versions/$ID" --silent
+              echo "Deleted dethroned version: $DIGEST"
+            fi
+          done < "$CANDIDATES"
 
       - name: Write job summary
         run: |
