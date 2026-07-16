@@ -367,6 +367,9 @@ importers:
       colorjs.io:
         specifier: ^0.6.1
         version: 0.6.1
+      compression:
+        specifier: ^1.7.4
+        version: 1.7.4
       cookie:
         specifier: ^1.0.1
         version: 1.0.1
@@ -382,6 +385,9 @@ importers:
       entrijs:
         specifier: ^0.0.11
         version: 0.0.11
+      esbuild:
+        specifier: ^0.25.3
+        version: 0.25.3
       express:
         specifier: ^4.21.1
         version: 4.21.1
@@ -436,6 +442,9 @@ importers:
       react-error-boundary:
         specifier: ^5.0.0
         version: 5.0.0(react@18.3.0-canary-14898b6a9-20240318)
+      react-router-dom:
+        specifier: ^6.30.0
+        version: 6.30.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
       remix-auth:
         specifier: ^3.7.0
         version: 3.7.0(@remix-run/react@2.16.5(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)(typescript@7.0.2))(@remix-run/server-runtime@2.16.5(typescript@7.0.2))
@@ -533,9 +542,6 @@ importers:
       playwright:
         specifier: 1.50.1
         version: 1.50.1
-      react-router-dom:
-        specifier: ^6.30.0
-        version: 6.30.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
       react-test-renderer:
         specifier: 18.3.0-canary-14898b6a9-20240318
         version: 18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318)
