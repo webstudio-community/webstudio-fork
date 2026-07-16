@@ -488,6 +488,28 @@ const Publish = ({
   const [hasCustomDomainsSelected, setHasCustomDomainsSelected] =
     useState(false);
   const countdown = usePublishCountdown(isPublishing);
+  const publisherHost = useStore($publisherHost);
+  const buildModeStorageKey = `buildMode:${project.id}`;
+  const [buildMode, setBuildMode] = useState<"ssg" | "ssr" | "cloudflare">(
+    () =>
+      (localStorage.getItem(buildModeStorageKey) as
+        | "ssg"
+        | "ssr"
+        | "cloudflare"
+        | null) ?? "ssr"
+  );
+  const handleBuildModeChange = (value: "ssg" | "ssr" | "cloudflare") => {
+    localStorage.setItem(buildModeStorageKey, value);
+    setBuildMode(value);
+  };
+  const { load: loadCapabilities, data: capabilities } =
+    trpcClient.domain.publisherCapabilities.useQuery();
+
+  useEffect(() => {
+    if (publisherHost) {
+      loadCapabilities(undefined);
+    }
+  }, [publisherHost, loadCapabilities]);
 
   useEffect(() => {
     const form = buttonRef.current?.closest("form");
@@ -535,6 +557,7 @@ const Publish = ({
       projectId: project.id,
       domains,
       destination: "saas",
+      buildMode,
     });
 
     if (publishResult.success === false) {
@@ -690,6 +713,42 @@ const Publish = ({
         <PanelBanner variant="warning">
           <Text>{publishWarning}</Text>
         </PanelBanner>
+      )}
+
+      {publisherHost && (
+        <Select
+          fullWidth
+          value={buildMode}
+          options={["ssr", "ssg", "cloudflare"] as const}
+          getLabel={(value: "ssr" | "ssg" | "cloudflare") => {
+            if (value === "ssr") {
+              return "SSR (dynamic data)";
+            }
+            if (value === "ssg") {
+              return "SSG (static site)";
+            }
+            return "Cloudflare Pages";
+          }}
+          getDescription={(value: "ssr" | "ssg" | "cloudflare") => {
+            if (value === "ssr") {
+              return "Dynamic data, rendered per request";
+            }
+            if (value === "ssg") {
+              return "Static files, no dynamic data";
+            }
+            return "Deploy to Cloudflare edge";
+          }}
+          getItemProps={(value) =>
+            value === "cloudflare" && !capabilities?.cloudflare
+              ? {
+                  disabled: true,
+                  title:
+                    "Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID on the publisher to enable",
+                }
+              : {}
+          }
+          onChange={handleBuildModeChange}
+        />
       )}
 
       <Tooltip
