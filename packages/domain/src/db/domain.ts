@@ -320,16 +320,49 @@ export const updateStatus = async (
 
   const { domain } = validationResult;
 
-  // @todo: must be implemented as workflow/queue service part of 3rd party domain initialization process
-  const statusResult = await context.domain.domainTrpc.getStatus.query({
-    domain,
-  });
+  // Always re-verify TXT via DNS — never trust the in-memory cache for a status check.
+  let domainStatus: Status = "error";
+  let domainError: string | null = null;
 
-  if (statusResult.success === false) {
-    return statusResult;
+  const domainIdRow = await context.postgrest.client
+    .from("Domain")
+    .select("id")
+    .eq("domain", domain)
+    .single();
+
+  if (domainIdRow.error) {
+    return createErrorResponse(domainIdRow.error);
   }
 
-  const { data } = statusResult;
+  const projectDomainRow = await context.postgrest.client
+    .from("ProjectDomain")
+    .select("txtRecord")
+    .eq("domainId", domainIdRow.data.id)
+    .eq("projectId", props.projectId)
+    .single();
+
+  if (projectDomainRow.error) {
+    return createErrorResponse(projectDomainRow.error);
+  }
+
+  const reVerifyResult = await context.domain.domainTrpc.create.mutate({
+    domain,
+    txtRecord: projectDomainRow.data.txtRecord,
+  });
+
+  if (reVerifyResult.success) {
+    domainStatus = "active";
+  } else {
+    domainError = reVerifyResult.error;
+  }
+
+  const data =
+    domainStatus === "error"
+      ? {
+          status: "error" as const,
+          error: domainError ?? "Unknown error",
+        }
+      : { status: domainStatus };
 
   // update domain status
   const updatedDomainResult = await context.postgrest.client
