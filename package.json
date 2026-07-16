@@ -27,6 +27,7 @@
     "test:builder:core": "pnpm --filter @webstudio-is/builder exec vitest run --project 'core-*'",
     "test:builder:app": "pnpm --filter @webstudio-is/builder exec vitest run --project 'app-*'",
     "fixtures": "pnpm -r fixtures:link && pnpm -r fixtures:sync && pnpm -r fixtures:build",
+    "fixtures:restamp": "NODE_OPTIONS='--conditions=webstudio --import=tsx' node packages/protocol/scripts/restamp-fixtures.ts",
     "checks": "pnpm -r test && pnpm -r typecheck && pnpm lint && pnpm check:package-boundaries && pnpm check:generated-api && pnpm check:generated-docs && pnpm fixtures",
     "e2e:builder": "pnpm --filter=@webstudio-is/builder e2e",
     "e2e:builder:build": "pnpm --filter=@webstudio-is/builder build",
