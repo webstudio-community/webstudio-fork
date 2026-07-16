@@ -34,13 +34,13 @@ jobs:
           package: builder
           delete-tags: ${{ steps.branch.outputs.tag }}
 
+      # Full sweep, manual only — PR close cleans just its own images (above).
       # Each build pushes per-arch images by digest; retagging (e.g. moving
       # `latest` on develop pushes) strands the previous manifest and its
-      # children as untagged versions. Sweep them here. `older-than` skips
-      # digests just pushed by an in-flight build (the develop build starts
-      # right when the PR merges) — anything it leaves behind is swept on the
-      # next PR close or a manual dispatch.
+      # children as untagged versions. `older-than` skips digests just pushed
+      # by an in-flight build, whose manifest is not tagged yet.
       - name: Prune untagged images
+        if: github.event_name == 'workflow_dispatch'
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           package: builder
