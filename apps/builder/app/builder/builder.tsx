@@ -36,6 +36,7 @@ import {
   $stagingUsername,
   $stagingPassword,
   $user,
+  $entriEnabled,
 } from "~/shared/nano-states";
 import { $project } from "~/shared/sync/data-stores";
 import { $settings, type Settings } from "./shared/client-settings";
@@ -262,6 +263,7 @@ export type BuilderProps = {
   purchases: Array<Purchase>;
   stagingUsername: string;
   stagingPassword: string;
+  entriEnabled: boolean;
 };
 
 export const Builder = (props: BuilderProps) => {
@@ -272,8 +274,8 @@ export const Builder = (props: BuilderProps) => {
     authTokenPermissions,
     stagingUsername,
     stagingPassword,
+    entriEnabled,
   } = props;
-
   useMount(initBuilderApi);
 
   useMount(() => {
@@ -285,6 +287,7 @@ export const Builder = (props: BuilderProps) => {
     $authTokenPermissions.set(authTokenPermissions);
     $stagingUsername.set(stagingUsername);
     $stagingPassword.set(stagingPassword);
+    $entriEnabled.set(entriEnabled);
 
     const controller = new AbortController();
 
