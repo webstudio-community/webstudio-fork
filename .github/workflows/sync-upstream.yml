@@ -114,6 +114,25 @@ jobs:
 
           git push --force-with-lease origin develop
 
+      # After a clean rebase, the fork's schema patches may have moved the
+      # bundleVersion contract hash away from the (upstream-generated) fixture
+      # stamps, which would fail packages/protocol/fixtures.test.ts. Re-stamp
+      # them deterministically so develop stays green with no manual step.
+      # See packages/protocol/scripts/restamp-fixtures.ts.
+      - uses: ./.github/actions/ci-setup
+        if: steps.rebase.outcome == 'success'
+
+      - name: Re-stamp fixtures for fork schema
+        if: steps.rebase.outcome == 'success'
+        run: |
+          pnpm fixtures:restamp
+          if git diff --quiet; then
+            echo "Fixture bundleVersion already current."
+          else
+            git commit -am "chore(fixtures): re-stamp bundleVersion for fork schema"
+            git push origin develop
+          fi
+
       - name: Open issue on rebase failure
         if: steps.rebase.outcome == 'failure'
         env:

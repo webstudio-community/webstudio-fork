@@ -14,6 +14,7 @@
     "check:generated-api": "pnpm --filter @webstudio-is/project-build generate-runtime-operation-contracts && pnpm --filter @webstudio-is/builder generate-server-only-api-metadata && node scripts/check-clean-files.mjs packages/project-build/src/contracts/__generated__/runtime-operation-contracts.ts packages/protocol/src/builder-api/__generated__/server-only-router-operation-metadata.ts",
     "check:generated-docs": "pnpm --filter @webstudio-is/project-build generate-docs && pnpm --filter webstudio generate-docs && node scripts/check-clean-files.mjs packages/project-build/src/docs.generated.ts packages/cli/src/docs.generated.ts",
     "fixtures": "pnpm -r fixtures:link && pnpm -r fixtures:sync && pnpm -r fixtures:build",
+    "fixtures:restamp": "NODE_OPTIONS='--conditions=webstudio --import=tsx' node packages/protocol/scripts/restamp-fixtures.ts",
     "checks": "pnpm -r test && pnpm -r typecheck && pnpm lint && pnpm check:package-boundaries && pnpm check:generated-api && pnpm check:generated-docs && pnpm fixtures",
     "e2e:builder": "bash ./apps/builder/e2e/run-local.sh",
     "e2e:builder:dev:backend": "E2E_SKIP_CLEANUP=true E2E_RUN_TESTS=false E2E_START_POSTGREST=true E2E_DB_BOOTSTRAP=if-empty E2E_INSTALL_PLAYWRIGHT=false bash ./apps/builder/e2e/run-local.sh",
