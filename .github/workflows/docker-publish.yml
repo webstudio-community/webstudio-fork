@@ -248,9 +248,23 @@ jobs:
       # lockstep — the publisher reads builder:latest's revision at build time).
       # Requires a GitHub App with `actions: write` on the publisher repo, exposed
       # via the PUBLISHER_DISPATCH_APP_* secrets. Skips cleanly when unset (forks).
+      # `secrets` can't be used in `if:`, so the presence check runs in a step.
+      - name: Check publisher dispatch is configured
+        id: publisher-dispatch
+        if: ${{ github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true') }}
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "PUBLISHER_DISPATCH_APP_ID not set — skipping publisher trigger."
+          fi
+
       - name: Generate token to trigger publisher
         id: publisher-token
-        if: ${{ (github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true')) && secrets.PUBLISHER_DISPATCH_APP_ID != '' }}
+        if: ${{ steps.publisher-dispatch.outputs.enabled == 'true' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
