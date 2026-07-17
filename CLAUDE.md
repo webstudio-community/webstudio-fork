@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a community fork. `develop` is maintained as `upstream/main` + a small patch series of thematic commits (listed in `COMMUNITY_CHANGES.md`), rebased on top of upstream at every sync. New PRs are squash-merged on `develop`, then folded into the relevant patch (or added as a new one, updating the list in `COMMUNITY_CHANGES.md`) at the next upstream sync. When a contribution is accepted upstream, drop it from the series and from the list.
 
+### Fixture bundleVersion
+
+`bundleVersion` (in `packages/protocol/src/schema.ts`) is a contract hash of the schema. The fork's self-hosting patches change the schema, so its hash differs from the (upstream-generated) stamps committed in `fixtures/*/.webstudio/data.json`, failing `fixtures.test.ts`. After changing the bundle schema — or after an upstream sync — run `pnpm fixtures:restamp` and commit. The `sync-upstream` workflow already does this automatically after a clean rebase; `pnpm fixtures:restamp --check` fails on drift (CI).
+
 ## Overview
 
 Webstudio is an Open Source Visual Development Platform. This is a pnpm monorepo with three workspace types: `apps/`, `packages/`, and `fixtures/`.
