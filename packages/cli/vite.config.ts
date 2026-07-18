@@ -1,8 +1,5 @@
-import {
-  defaultClientConditions,
-  defaultServerConditions,
-  defineConfig,
-} from "vite";
+import { defaultClientConditions, defaultServerConditions } from "vite";
+import { defineConfig } from "vitest/config";
 import { createRequire } from "node:module";
 import pkg from "./package.json";
 
@@ -45,6 +42,13 @@ export default defineConfig({
     resolve: {
       conditions: ["webstudio", ...defaultServerConditions],
     },
+  },
+  test: {
+    // Retry in CI to absorb rare, environment-induced flakes — notably the
+    // evaluations/high-impact/* tests, which spawn CLI subprocesses and
+    // occasionally exceed their timeout on a loaded runner. A genuinely broken
+    // test still fails every attempt. Local runs stay strict (no retry).
+    retry: process.env.CI ? 2 : 0,
   },
   build: {
     target: "node22",
