@@ -10,6 +10,8 @@ This is a community fork. `develop` is maintained as `upstream/main` + a small p
 
 `bundleVersion` (in `packages/protocol/src/schema.ts`) is a contract hash of the schema. The fork's self-hosting patches change the schema, so its hash differs from the (upstream-generated) stamps committed in `fixtures/*/.webstudio/data.json`, failing `fixtures.test.ts`. After changing the bundle schema — or after an upstream sync — run `pnpm fixtures:restamp` and commit. The `sync-upstream` workflow already does this automatically after a clean rebase; `pnpm fixtures:restamp --check` fails on drift (CI).
 
+Because both sides re-generate that stamp, it conflicts on most syncs even though it is not real content. The `sync-upstream` workflow therefore **auto-resolves rebase conflicts that touch only `fixtures/*/.webstudio/data.json`** (takes the upstream stamp, then re-stamps), and only opens a manual-conflict issue when a real code file also conflicts. These fixture files are force-tracked despite the `.webstudio` ignore rule — the negations in `.gitignore` keep the pre-commit hook from choking on re-stamps.
+
 ## Overview
 
 Webstudio is an Open Source Visual Development Platform. This is a pnpm monorepo with three workspace types: `apps/`, `packages/`, and `fixtures/`.

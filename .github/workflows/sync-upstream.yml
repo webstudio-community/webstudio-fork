@@ -84,14 +84,55 @@ jobs:
         run: |
           git fetch origin main
 
-          # Snapshot the patch series (titles) before rewrite
-          git log origin/main..HEAD --format="%s" > /tmp/titles-before
+          # The fixture bundleVersion stamp is a schema-hash that both sides
+          # regenerate, so it conflicts on nearly every sync even though it is
+          # not real content — the re-stamp step below recomputes it. Auto-take
+          # upstream for those files ONLY; anything else needs a human.
+          fixture_stamp='^fixtures/[^/]+/\.webstudio/data\.json$'
+          resolve_fixture_conflicts() {
+            while true; do
+              conflicts="$(git diff --name-only --diff-filter=U)"
+              # Any conflicted path that is NOT a fixture stamp (or no conflict
+              # at all) -> stop, let the caller abort and open an issue.
+              non_fixture="$(printf '%s\n' "$conflicts" \
+                | grep -vE "$fixture_stamp" || true)"
+              if [ -z "$conflicts" ] || [ -n "$non_fixture" ]; then
+                return 1
+              fi
+              # NOTE: during a rebase --ours/--theirs are inverted vs a merge:
+              # --ours = the new base (upstream), --theirs = the replayed fork
+              # commit. We want upstream's stamp here, so --ours.
+              printf '%s\n' "$conflicts" | while IFS= read -r f; do
+                git checkout --ours -- "$f" && git add -- "$f"
+              done
+              # Taking upstream can leave the stamp-only commit empty -> skip it.
+              if git diff --cached --quiet; then
+                GIT_EDITOR=true git rebase --skip && return 0
+              else
+                GIT_EDITOR=true git rebase --continue && return 0
+              fi
+              # Rebase paused again on a later commit -> loop and re-evaluate.
+            done
+          }
+
+          # Snapshot the patch series (titles) before rewrite, ignoring the
+          # fixture re-stamp commit (it is regenerated below and may be dropped
+          # as empty during the rebase — that is expected, not a lost patch).
+          git log origin/main..HEAD --format="%s" | grep -viE 're-?stamp' \
+            > /tmp/titles-before || true
 
           echo "Patch series before rebase:"
           cat /tmp/titles-before
 
-          # Never auto-resolve: any conflict aborts (handled in next step)
-          if ! git rebase origin/main; then
+          if git rebase origin/main; then
+            rebase_ok=1
+          elif resolve_fixture_conflicts; then
+            rebase_ok=1
+          else
+            rebase_ok=0
+          fi
+
+          if [ "$rebase_ok" -ne 1 ]; then
             git diff --name-only --diff-filter=U > /tmp/conflict-files || true
             {
               echo "conflict_files<<EOF"
@@ -102,10 +143,11 @@ jobs:
             exit 1
           fi
 
-          # Sanity check: same patch titles before and after.
-          # A mismatch usually means git dropped a patch that became empty
-          # (change accepted upstream) — this must be a human decision.
-          git log origin/main..HEAD --format="%s" > /tmp/titles-after
+          # Sanity check: same patch titles before and after (re-stamp commit
+          # excluded above). A mismatch usually means git dropped a real patch
+          # that became empty (change accepted upstream) — a human decision.
+          git log origin/main..HEAD --format="%s" | grep -viE 're-?stamp' \
+            > /tmp/titles-after || true
           if ! diff -u /tmp/titles-before /tmp/titles-after; then
             echo "ERROR: patch series changed during rebase (see diff above)."
             echo "If a patch was upstreamed, drop it explicitly and update COMMUNITY_CHANGES.md."
