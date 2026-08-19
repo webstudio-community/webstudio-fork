@@ -168,6 +168,13 @@ symlink, so Node's ESM resolution fails from the bundled server output
 direct dependency in `apps/builder/package.json`). If a similar error shows up for another
 package, check whether it's declared directly in `apps/builder/package.json` first.
 
+`scripts/verify-standalone-deps.mjs` checks for this automatically: it scans the
+compiled server bundle for bare imports and confirms each resolves from a given
+pruned `node_modules`. `.github/workflows/verify-standalone-deps.yml` runs it
+against the Dockerfile's `builder` stage — directly on PRs into `develop` (fast
+feedback, non-blocking), and as a `needs` gate in `docker-publish.yml` so a push
+to `develop` only builds/publishes an image once the check passes.
+
 ---
 
 ## Architecture
