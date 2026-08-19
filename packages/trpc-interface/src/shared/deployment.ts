@@ -101,10 +101,37 @@ export const deploymentRouter = router({
   unpublish: procedure
     .input(unpublishInput)
     .output(output)
-    .mutation(() => {
-      return {
-        success: false,
-        error: "NOT_IMPLEMENTED",
-      };
+    .mutation(async ({ input }) => {
+      const publisherUrl = process.env.SELF_HOSTED_PUBLISHER_URL;
+
+      if (publisherUrl === undefined) {
+        return {
+          success: false,
+          error: "NOT_IMPLEMENTED",
+        };
+      }
+
+      try {
+        const response = await fetch(`${publisherUrl}/unpublish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain: input.domain }),
+        });
+
+        if (response.ok === false) {
+          const message = await response.text();
+          return {
+            success: false,
+            error: `Publisher error: ${message.slice(0, 500)}`,
+          };
+        }
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to reach publisher service: ${error instanceof Error ? error.message : "unknown error"}`,
+        };
+      }
     }),
 });
