@@ -1,0 +1,50 @@
+name: Verify standalone deploy
+
+# Builds the same `builder` Docker stage docker-publish.yml ships from GHCR
+# up to `pnpm --prod deploy /standalone`, then checks that every bare import
+# in the compiled server bundle actually resolves from that pruned
+# node_modules. Catches the class of bug documented in CLAUDE.md under
+# "Standalone deploy gotcha": a package pulled in only as a *transitive*
+# dependency gets no top-level symlink from `pnpm deploy`, so the app builds
+# fine but crashes at runtime with ERR_MODULE_NOT_FOUND (seen with
+# react-router-dom and parse5, see PR #48).
+#
+# Runs directly on PRs into develop for fast feedback (does not block
+# merging), and is called by docker-publish.yml as a gate before an image is
+# built from a push to develop.
+
+on:
+  pull_request:
+    branches:
+      - develop
+  workflow_call:
+
+jobs:
+  verify:
+    name: Verify standalone deploy resolves all runtime deps
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build up to the standalone deploy stage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/builder/Dockerfile
+          target: builder
+          tags: verify-standalone-deps:local
+          load: true
+          cache-from: |
+            type=gha,scope=verify-standalone-deps
+            type=gha,scope=develop-linux-amd64
+          cache-to: type=gha,mode=max,scope=verify-standalone-deps
+
+      - name: Verify bundled server imports resolve from the deployed node_modules
+        run: |
+          docker run --rm verify-standalone-deps:local \
+            node scripts/verify-standalone-deps.mjs \
+              apps/builder/build/server \
+              /standalone/node_modules
