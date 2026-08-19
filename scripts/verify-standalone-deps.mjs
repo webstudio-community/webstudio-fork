@@ -101,13 +101,17 @@ const extractSpecifiers = (source) => {
 
     if (ch === "/" && source[i + 1] === "/") {
       i += 2;
-      while (i < n && source[i] !== "\n") i++;
+      while (i < n && source[i] !== "\n") {
+        i++;
+      }
       continue;
     }
 
     if (ch === "/" && source[i + 1] === "*") {
       i += 2;
-      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) {
+        i++;
+      }
       i += 2;
       continue;
     }
@@ -149,10 +153,14 @@ const extractSpecifiers = (source) => {
           j += 2;
           continue;
         }
-        if (source[j] === "\n") break;
-        if (source[j] === "[") inClass = true;
-        else if (source[j] === "]") inClass = false;
-        else if (source[j] === "/" && !inClass) {
+        if (source[j] === "\n") {
+          break;
+        }
+        if (source[j] === "[") {
+          inClass = true;
+        } else if (source[j] === "]") {
+          inClass = false;
+        } else if (source[j] === "/" && !inClass) {
           closed = true;
           break;
         }
@@ -160,7 +168,9 @@ const extractSpecifiers = (source) => {
       }
       if (closed) {
         i = j + 1;
-        while (i < n && /[a-z]/i.test(source[i])) i++; // flags
+        while (i < n && /[a-z]/i.test(source[i])) {
+          i++; // flags
+        }
         pending = null;
         prevSignificant = "/";
         continue;
@@ -171,12 +181,16 @@ const extractSpecifiers = (source) => {
 
     if (isIdentChar(ch)) {
       let j = i;
-      while (j < n && isIdentChar(source[j])) j++;
+      while (j < n && isIdentChar(source[j])) {
+        j++;
+      }
       const word = source.slice(i, j);
 
       if (word === "import" || word === "require") {
         let k = j;
-        while (k < n && /\s/.test(source[k])) k++;
+        while (k < n && /\s/.test(source[k])) {
+          k++;
+        }
         if (source[k] === "(") {
           pending = "call-paren";
         } else if (
