@@ -14,35 +14,225 @@ if (!bundleDirArg || !nodeModulesDirArg) {
 const bundleDir = resolve(bundleDirArg);
 const nodeModulesDir = resolve(nodeModulesDirArg);
 
-// Heuristic, not a real parser — but anchored on tokens that can't appear
-// by coincidence in arbitrary bundled data. A bare `\bfrom\s*["']` (with no
-// requirement of an `import`/`export` keyword before it) previously matched
-// unrelated `"from"` object keys embedded in bundled data (e.g. char-range
-// tables), producing garbage "missing" specifiers. `import`/`export` are
-// reserved words, so requiring one directly before `from`, with no quote or
-// `;` in between (i.e. still inside the same import clause), is safe.
-const specifierPatterns = [
-  // import ... from "x" / export ... from "x". The gap between the keyword
-  // and "from" only allows characters that can legally appear in an import
-  // clause (identifiers, braces, comma, `*`, whitespace) — nothing else,
-  // and never a newline, since bundlers always emit these on one line. This
-  // keeps a real "import"/"export" occurrence inside a bundled dependency's
-  // own source (e.g. a vendored parser using those words for unrelated
-  // reasons) from spanning into unconnected code to reach some later,
-  // unrelated "from" identifier.
-  /\b(?:import|export)\b[\w{}, *$]*?\bfrom\s*["']([^"']+)["']/g,
-  // import "x" (side-effect) / import("x") (dynamic)
-  /\bimport\s*\(?\s*["']([^"']+)["']/g,
-  // require("x")
-  /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-];
-
 const isBareSpecifier = (specifier) =>
+  specifier.length > 0 &&
   !specifier.startsWith(".") &&
   !specifier.startsWith("/") &&
   !specifier.startsWith("node:") &&
   !specifier.startsWith("data:") &&
   !specifier.startsWith("file:");
+
+const isIdentChar = (ch) => ch !== undefined && /[\w$]/.test(ch);
+
+// Keywords that can never legally appear inside an import/export clause
+// (between the `import`/`export` keyword and its `from` string). Seeing one
+// means we're looking at some other declaration entirely (`export function
+// foo() {...}`, `export const x = ...`, etc.), not a from-clause import —
+// bail out of tracking rather than risk running on into that declaration's
+// body and mistaking an unrelated string literal for a specifier.
+const clauseBreakingKeywords = new Set([
+  "function",
+  "class",
+  "const",
+  "let",
+  "var",
+  "async",
+  "default",
+  "new",
+  "return",
+  "if",
+  "else",
+  "for",
+  "while",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "yield",
+  "await",
+  "try",
+  "catch",
+  "finally",
+  "throw",
+  "switch",
+  "case",
+  "break",
+  "continue",
+  "do",
+  "super",
+  "this",
+  "void",
+  "delete",
+  "extends",
+  "static",
+  "get",
+  "set",
+  "true",
+  "false",
+  "null",
+  "undefined",
+]);
+
+// A small hand-rolled scanner — not a full parser, but string/comment/regex
+// -aware, unlike a plain regex scan. The compiled server bundle vendors a JS
+// parser (acorn, pulled in by Vite) whose own source is full of text that
+// *looks* like import syntax without being any: keyword tables such as
+// `kw("import", startsExpr)`, comments, and plain identifiers like `from` in
+// `function copyRange(from, to)`. A regex has no notion of "inside a string
+// literal" and repeatedly misread these as real specifiers. Tracking string/
+// comment/regex boundaries properly means text inside them is never
+// considered for keyword matching, and only genuine import/export/require
+// syntax gets flagged. Dynamic-import/require targets built from
+// interpolation (template literals, variables) aren't statically knowable
+// and are intentionally skipped, not flagged.
+const extractSpecifiers = (source) => {
+  const specifiers = new Set();
+  const n = source.length;
+  let i = 0;
+  // null | "clause" (saw import/export, gathering its clause, waiting for
+  // "from") | "from" (saw "from", next string is the specifier) |
+  // "call-paren" (saw import/require immediately followed by "(", waiting
+  // for that "(") | "call-string" (saw the "(", waiting for the string).
+  let pending = null;
+  let prevSignificant = "";
+
+  while (i < n) {
+    const ch = source[i];
+
+    if (ch === "/" && source[i + 1] === "/") {
+      i += 2;
+      while (i < n && source[i] !== "\n") i++;
+      continue;
+    }
+
+    if (ch === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      let j = i + 1;
+      let value = "";
+      while (j < n && source[j] !== quote) {
+        if (source[j] === "\\") {
+          value += source[j + 1] ?? "";
+          j += 2;
+          continue;
+        }
+        value += source[j];
+        j++;
+      }
+      if (pending === "from" || pending === "call-string") {
+        if (quote !== "`") {
+          specifiers.add(value);
+        }
+      }
+      pending = null;
+      prevSignificant = quote;
+      i = j + 1;
+      continue;
+    }
+
+    // Crude regex-literal detection: a `/` not preceded by an identifier,
+    // number, `)`, or `]` starts a regex, not a division. Needed so a quote
+    // character inside a regex (e.g. /["']/) doesn't get misread as the
+    // start of a string.
+    if (ch === "/" && !/[\w$)\]]/.test(prevSignificant)) {
+      let j = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (j < n) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === "\n") break;
+        if (source[j] === "[") inClass = true;
+        else if (source[j] === "]") inClass = false;
+        else if (source[j] === "/" && !inClass) {
+          closed = true;
+          break;
+        }
+        j++;
+      }
+      if (closed) {
+        i = j + 1;
+        while (i < n && /[a-z]/i.test(source[i])) i++; // flags
+        pending = null;
+        prevSignificant = "/";
+        continue;
+      }
+      // No closing "/" before a newline: not actually a regex, fall through
+      // and treat "/" as ordinary punctuation below.
+    }
+
+    if (isIdentChar(ch)) {
+      let j = i;
+      while (j < n && isIdentChar(source[j])) j++;
+      const word = source.slice(i, j);
+
+      if (word === "import" || word === "require") {
+        let k = j;
+        while (k < n && /\s/.test(source[k])) k++;
+        if (source[k] === "(") {
+          pending = "call-paren";
+        } else if (word === "import" && (source[k] === '"' || source[k] === "'" || source[k] === "`")) {
+          // Side-effect import: `import "x";` — waiting for the string with
+          // only whitespace in between, same shape as the "from" state.
+          pending = "from";
+        } else {
+          pending = word === "import" ? "clause" : null;
+        }
+        i = j;
+        prevSignificant = word;
+        continue;
+      }
+      if (word === "export") {
+        pending = "clause";
+        i = j;
+        prevSignificant = word;
+        continue;
+      }
+      if (word === "from" && pending === "clause") {
+        pending = "from";
+        i = j;
+        prevSignificant = word;
+        continue;
+      }
+      if (pending === "clause") {
+        if (clauseBreakingKeywords.has(word)) {
+          pending = null;
+        }
+        // else: an ordinary binding identifier or "as" — stay in "clause".
+      } else if (pending !== "from" && pending !== "call-paren" && pending !== "call-string") {
+        pending = null;
+      }
+      i = j;
+      prevSignificant = word;
+      continue;
+    }
+
+    if (!/\s/.test(ch)) {
+      if (pending === "clause") {
+        if (!/[{}, *]/.test(ch)) {
+          pending = null;
+        }
+      } else if (pending === "call-paren") {
+        pending = ch === "(" ? "call-string" : null;
+      } else if (pending === "from" || pending === "call-string") {
+        pending = null; // non-whitespace before the string: bail
+      }
+      prevSignificant = ch;
+    }
+
+    i++;
+  }
+
+  return specifiers;
+};
 
 const collectJsFiles = async (dir) => {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -67,12 +257,9 @@ if (files.length === 0) {
 const specifiers = new Set();
 for (const file of files) {
   const content = await readFile(file, "utf8");
-  for (const pattern of specifierPatterns) {
-    for (const match of content.matchAll(pattern)) {
-      const specifier = match[1];
-      if (isBareSpecifier(specifier)) {
-        specifiers.add(specifier);
-      }
+  for (const specifier of extractSpecifiers(content)) {
+    if (isBareSpecifier(specifier)) {
+      specifiers.add(specifier);
     }
   }
 }
