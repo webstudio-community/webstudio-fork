@@ -290,10 +290,14 @@ const useDeleteProject = ({
   onOpenChange: (isOpen: boolean) => void;
   onHiddenChange: (isHidden: boolean) => void;
 }) => {
-  const { send, data, state } =
+  const { send, data, state, error } =
     trpcClient.dashboardProject.delete.useMutation();
   const [isMatch, setIsMatch] = useState(false);
-  const errors = data && "errors" in data ? data.errors : undefined;
+  // `data.errors` covers rejections returned by the mutation (e.g. permission
+  // checks); `error` covers it throwing (e.g. the self-hosted publisher being
+  // unreachable during unpublish) — both must reopen the dialog with a message,
+  // otherwise the dialog just closes and the failed delete looks like it worked.
+  const errors = (data && "errors" in data ? data.errors : undefined) ?? error;
   const revalidator = useRevalidator();
 
   useEffect(() => {
