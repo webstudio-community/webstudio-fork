@@ -170,10 +170,12 @@ package, check whether it's declared directly in `apps/builder/package.json` fir
 
 `scripts/verify-standalone-deps.mjs` checks for this automatically: it scans the
 compiled server bundle for bare imports and confirms each resolves from a given
-pruned `node_modules`. Its specifier regex requires an actual `import`/`export`
-keyword before the `from` clause (not just `from "..."` anywhere) — the bundle
-embeds unrelated data with literal `"from"` keys (e.g. char-range tables), which
-a looser match misreads as import specifiers. `.github/workflows/verify-standalone-deps.yml`
+pruned `node_modules`. It uses a small string/comment/regex-literal-aware scanner,
+not a plain regex — the bundle vendors a JS parser (acorn, via Vite) whose own
+source contains text that looks like import syntax without being any (e.g.
+`kw("import", startsExpr)` keyword tables, or `from` as an ordinary parameter
+name), which a regex has no way to tell apart from real code since it can't
+see "inside a string literal". `.github/workflows/verify-standalone-deps.yml`
 runs it against the Dockerfile's `builder` stage — directly on PRs into `develop`
 (fast feedback, non-blocking), and as a gate in `docker-publish.yml` so a push to
 `develop` only builds/publishes an image once the check passes. That gate job is
