@@ -1,9 +1,20 @@
 name: Docker — Build & Publish
 
 on:
-  push:
-    branches:
-      - develop
+  # Gates image publishing (not merging — sync-upstream.yml pushes to develop
+  # unconditionally) on the standalone deploy actually working at runtime:
+  # fires once verify-standalone-deps.yml finishes running on develop (it has
+  # its own `push: branches: [develop]` trigger), gated below on its
+  # conclusion. A plain `push` trigger here — or a job in this workflow that
+  # calls that one and gets `needs:` on — would only run *after* the image
+  # build already started (or, with `needs:`, drag along GitHub Actions'
+  # transitive-needs-skip semantics, which bit this workflow twice before).
+  # workflow_run decouples the two files completely: this workflow doesn't
+  # even start until the check has already passed.
+  workflow_run:
+    workflows: ["Verify standalone deploy"]
+    types: [completed]
+    branches: [develop]
   pull_request:
     types: [opened, synchronize, reopened]
   release:
@@ -21,6 +32,10 @@ jobs:
   # assembles the multi-arch manifest from those digests.
   build:
     name: Build builder image (${{ matrix.platform }})
+    # workflow_run fires on both success and failure of the watched workflow
+    # (types: [completed]) — only proceed when it actually passed. Every
+    # other trigger (pull_request/release/workflow_dispatch) isn't gated.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -36,7 +51,16 @@ jobs:
       packages: write   # required for ghcr.io push
 
     steps:
+      # For workflow_run, github.sha/github.ref default to develop's *current*
+      # tip, not the commit verify-standalone-deps actually checked — pin the
+      # exact verified commit explicitly so a push landing in the gap between
+      # that check finishing and this job starting can't slip an unverified
+      # commit into the image. github.sha already resolves to the right
+      # commit for every other trigger (the PR merge commit, the release tag,
+      # the dispatched ref), so only override it for workflow_run.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       # "linux/amd64" → "linux-amd64" for artifact names and cache scopes
       - name: Prepare platform pair
