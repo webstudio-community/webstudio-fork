@@ -1,5 +1,5 @@
 import { createCookieSessionStorage } from "@remix-run/node";
-import env from "~/env/env.server";
+import env, { secureCookieName } from "~/env/env.server";
 import { BloomFilter } from "./bloom-filter.server";
 import { getSessionCookieNameVersion } from "./auth.server.utils";
 
@@ -9,13 +9,13 @@ export const sessionStorage = createCookieSessionStorage({
     // Using the __Host- prefix to prevent a malicious user from setting another person's session cookie
     // on all subdomains of apps.webstudio.is, e.g., setting Domain=.apps.webstudio.is.
     // For more information, see: https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/Cookies#name
-    name: `__Host-_session_${getSessionCookieNameVersion()}`,
+    name: secureCookieName(`_session_${getSessionCookieNameVersion()}`),
     maxAge: 60 * 60 * 24 * 30,
     sameSite: "lax",
     path: "/",
     httpOnly: true,
     secrets: env.AUTH_SECRET ? [env.AUTH_SECRET] : undefined,
-    secure: true,
+    secure: env.SECURE_COOKIE,
   },
 });
 
