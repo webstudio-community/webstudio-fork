@@ -162,6 +162,18 @@ pnpm -r --filter='./packages/**' build
 
 Both env files are committed. Edit `.env.development` for machine-specific overrides.
 
+### Standalone deploy gotcha (`apps/builder/Dockerfile`)
+
+`pnpm --filter "@webstudio-is/builder" --prod deploy /standalone` only creates top-level
+`node_modules` symlinks for `apps/builder`'s **direct** dependencies. A package used at
+runtime only as a _transitive_ dependency (e.g. pulled in by a workspace package like
+`@webstudio-is/project-build`) stays nested in the pnpm virtual store with no top-level
+symlink, so Node's ESM resolution fails from the bundled server output
+(`ERR_MODULE_NOT_FOUND`) even though the package built fine. Seen with `react-router-dom`
+(fixed via manual symlink in the Dockerfile) and `parse5` (fixed by declaring it as a
+direct dependency in `apps/builder/package.json`). If a similar error shows up for another
+package, check whether it's declared directly in `apps/builder/package.json` first.
+
 ---
 
 ## Architecture
