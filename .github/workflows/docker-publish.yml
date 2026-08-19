@@ -115,6 +115,12 @@ jobs:
     name: Merge & push manifest
     runs-on: ubuntu-24.04
     needs: build
+    # `success()` (this job's implicit default condition) walks the whole
+    # transitive needs chain, not just the direct `needs: build` — so on a
+    # PR event, verify-standalone-deps being skipped (see above) makes the
+    # default check false even though build itself succeeded. Same fix as
+    # build's own condition: check the direct dependency explicitly instead.
+    if: always() && needs.build.result == 'success'
 
     permissions:
       contents: read
