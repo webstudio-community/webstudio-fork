@@ -182,7 +182,12 @@ runs it against the Dockerfile's `builder` stage — directly on PRs into `devel
 skipped on non-push events (PR/release/workflow_dispatch); GitHub Actions skips a
 `needs:`-dependent job by default when the needed job was itself skipped, so the
 downstream build job spells out `if: needs.verify-standalone-deps.result == 'success' || ... == 'skipped'`
-to still run unconditionally on those events instead of cascading to skipped.
+to still run unconditionally on those events instead of cascading to skipped. The
+default `success()` a job's `if` falls back to also walks the _whole transitive_
+needs graph, not just its direct `needs:` — the `merge` job (needs: build, one
+step further down) needed the same explicit `if: needs.build.result == 'success'`
+treatment, since build's own success didn't stop verify-standalone-deps's skip
+from poisoning merge's implicit check.
 
 ---
 
