@@ -20,8 +20,7 @@ jobs:
   # Only runs on push to develop: PRs already get this check directly from
   # verify-standalone-deps.yml's own pull_request trigger, in parallel with
   # this workflow's PR build, and release/workflow_dispatch builds are
-  # already gated by having reached develop in the first place. When this
-  # job is skipped, `needs` below is satisfied by default (skipped != failed).
+  # already gated by having reached develop in the first place.
   verify-standalone-deps:
     name: Verify standalone deploy
     if: github.event_name == 'push'
@@ -34,6 +33,13 @@ jobs:
   build:
     name: Build builder image (${{ matrix.platform }})
     needs: verify-standalone-deps
+    # A `needs` job that was itself skipped (any non-push event, see above)
+    # is NOT treated as "passed" by GitHub's default `success()` check — the
+    # dependent job is skipped too. Spell out the real condition: proceed if
+    # verify-standalone-deps actually passed, or never ran at all.
+    if: |
+      always() &&
+      (needs.verify-standalone-deps.result == 'success' || needs.verify-standalone-deps.result == 'skipped')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

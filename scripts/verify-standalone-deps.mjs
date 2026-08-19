@@ -14,11 +14,21 @@ if (!bundleDirArg || !nodeModulesDirArg) {
 const bundleDir = resolve(bundleDirArg);
 const nodeModulesDir = resolve(nodeModulesDirArg);
 
-// Heuristic, not a real parser: matches the specifier string of
-// `from "x"` / `import "x"` / `import("x")` / `require("x")`, which covers
-// every import form esbuild/rollup emit in the bundled server output.
-const specifierPattern =
-  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"'\s]+)["']/g;
+// Heuristic, not a real parser — but anchored on tokens that can't appear
+// by coincidence in arbitrary bundled data. A bare `\bfrom\s*["']` (with no
+// requirement of an `import`/`export` keyword before it) previously matched
+// unrelated `"from"` object keys embedded in bundled data (e.g. char-range
+// tables), producing garbage "missing" specifiers. `import`/`export` are
+// reserved words, so requiring one directly before `from`, with no quote or
+// `;` in between (i.e. still inside the same import clause), is safe.
+const specifierPatterns = [
+  // import ... from "x" / export ... from "x"
+  /\b(?:import|export)\b[^;'"]*?\bfrom\s*["']([^"']+)["']/g,
+  // import "x" (side-effect) / import("x") (dynamic)
+  /\bimport\s*\(?\s*["']([^"']+)["']/g,
+  // require("x")
+  /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+];
 
 const isBareSpecifier = (specifier) =>
   !specifier.startsWith(".") &&
@@ -50,10 +60,12 @@ if (files.length === 0) {
 const specifiers = new Set();
 for (const file of files) {
   const content = await readFile(file, "utf8");
-  for (const match of content.matchAll(specifierPattern)) {
-    const specifier = match[1];
-    if (isBareSpecifier(specifier)) {
-      specifiers.add(specifier);
+  for (const pattern of specifierPatterns) {
+    for (const match of content.matchAll(pattern)) {
+      const specifier = match[1];
+      if (isBareSpecifier(specifier)) {
+        specifiers.add(specifier);
+      }
     }
   }
 }
