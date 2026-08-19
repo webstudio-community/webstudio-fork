@@ -176,18 +176,22 @@ source contains text that looks like import syntax without being any (e.g.
 `kw("import", startsExpr)` keyword tables, or `from` as an ordinary parameter
 name), which a regex has no way to tell apart from real code since it can't
 see "inside a string literal". `.github/workflows/verify-standalone-deps.yml`
-runs it against the Dockerfile's `builder` stage — directly on PRs into `develop`
-(fast feedback, non-blocking), and as a gate in `docker-publish.yml` so a push to
-`develop` only builds/publishes an image once the check passes. That gate job is
-skipped on non-push events (PR/release/workflow_dispatch); GitHub Actions skips a
-`needs:`-dependent job by default when the needed job was itself skipped, so the
-downstream build job spells out `if: needs.verify-standalone-deps.result == 'success' || ... == 'skipped'`
-to still run unconditionally on those events instead of cascading to skipped. The
-default `success()` a job's `if` falls back to also walks the _whole transitive_
-needs graph, not just its direct `needs:` — the `merge` job (needs: build, one
-step further down) needed the same explicit `if: needs.build.result == 'success'`
-treatment, since build's own success didn't stop verify-standalone-deps's skip
-from poisoning merge's implicit check.
+runs it against the Dockerfile's `builder` stage on every PR into `develop` (fast
+feedback, non-blocking) and on every push to `develop`. `docker-publish.yml`
+doesn't build on that same push trigger directly — it watches
+verify-standalone-deps's runs via a `workflow_run` trigger and only builds/
+publishes an image once one of them succeeds on `develop`, gated by
+`github.event.workflow_run.conclusion == 'success'`. That decouples the two
+workflows entirely: docker-publish.yml doesn't even start until the check has
+already passed, instead of racing it or (as two earlier iterations of this did)
+gating on a `needs:` chain — GitHub Actions' default `success()` job condition
+walks the whole _transitive_ needs graph, not just direct `needs:`, so a check
+job skipped by design on non-push events silently skipped every job downstream
+of it too. Since `workflow_run` fires after develop's tip may have already
+moved past the verified commit, the `build` job explicitly checks out
+`github.event.workflow_run.head_sha` rather than the default (which would grab
+develop's current tip) — otherwise a push landing in that gap could slip an
+unverified commit into the published image.
 
 ---
 

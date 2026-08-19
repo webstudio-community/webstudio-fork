@@ -10,10 +10,15 @@ name: Verify standalone deploy
 # react-router-dom and parse5, see PR #48).
 #
 # Runs directly on PRs into develop for fast feedback (does not block
-# merging), and is called by docker-publish.yml as a gate before an image is
-# built from a push to develop.
+# merging) and on every push to develop. docker-publish.yml watches this
+# workflow's runs on develop (via a workflow_run trigger) and only builds/
+# publishes an image once one of them succeeds — see docker-publish.yml for
+# why that's a separate trigger rather than a job here calling out to it.
 
 on:
+  push:
+    branches:
+      - develop
   pull_request:
     branches:
       - develop

@@ -1,9 +1,20 @@
 name: Docker — Build & Publish
 
 on:
-  push:
-    branches:
-      - develop
+  # Gates image publishing (not merging — sync-upstream.yml pushes to develop
+  # unconditionally) on the standalone deploy actually working at runtime:
+  # fires once verify-standalone-deps.yml finishes running on develop (it has
+  # its own `push: branches: [develop]` trigger), gated below on its
+  # conclusion. A plain `push` trigger here — or a job in this workflow that
+  # calls that one and gets `needs:` on — would only run *after* the image
+  # build already started (or, with `needs:`, drag along GitHub Actions'
+  # transitive-needs-skip semantics, which bit this workflow twice before).
+  # workflow_run decouples the two files completely: this workflow doesn't
+  # even start until the check has already passed.
+  workflow_run:
+    workflows: ["Verify standalone deploy"]
+    types: [completed]
+    branches: [develop]
   pull_request:
     types: [opened, synchronize, reopened]
   release:
@@ -15,31 +26,16 @@ env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/builder
 
 jobs:
-  # Gates image publishing (not merging — sync-upstream.yml pushes to develop
-  # unconditionally) on the standalone deploy actually working at runtime.
-  # Only runs on push to develop: PRs already get this check directly from
-  # verify-standalone-deps.yml's own pull_request trigger, in parallel with
-  # this workflow's PR build, and release/workflow_dispatch builds are
-  # already gated by having reached develop in the first place.
-  verify-standalone-deps:
-    name: Verify standalone deploy
-    if: github.event_name == 'push'
-    uses: ./.github/workflows/verify-standalone-deps.yml
-
   # Each platform builds on its native runner (no QEMU — the emulated arm64
   # pnpm install hangs since the upstream oxc/rolldown/TS7 toolchain
   # migration) and pushes an untagged image by digest. The merge job then
   # assembles the multi-arch manifest from those digests.
   build:
     name: Build builder image (${{ matrix.platform }})
-    needs: verify-standalone-deps
-    # A `needs` job that was itself skipped (any non-push event, see above)
-    # is NOT treated as "passed" by GitHub's default `success()` check — the
-    # dependent job is skipped too. Spell out the real condition: proceed if
-    # verify-standalone-deps actually passed, or never ran at all.
-    if: |
-      always() &&
-      (needs.verify-standalone-deps.result == 'success' || needs.verify-standalone-deps.result == 'skipped')
+    # workflow_run fires on both success and failure of the watched workflow
+    # (types: [completed]) — only proceed when it actually passed. Every
+    # other trigger (pull_request/release/workflow_dispatch) isn't gated.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -55,7 +51,16 @@ jobs:
       packages: write   # required for ghcr.io push
 
     steps:
+      # For workflow_run, github.sha/github.ref default to develop's *current*
+      # tip, not the commit verify-standalone-deps actually checked — pin the
+      # exact verified commit explicitly so a push landing in the gap between
+      # that check finishing and this job starting can't slip an unverified
+      # commit into the image. github.sha already resolves to the right
+      # commit for every other trigger (the PR merge commit, the release tag,
+      # the dispatched ref), so only override it for workflow_run.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       # "linux/amd64" → "linux-amd64" for artifact names and cache scopes
       - name: Prepare platform pair
@@ -115,12 +120,6 @@ jobs:
     name: Merge & push manifest
     runs-on: ubuntu-24.04
     needs: build
-    # `success()` (this job's implicit default condition) walks the whole
-    # transitive needs chain, not just the direct `needs: build` — so on a
-    # PR event, verify-standalone-deps being skipped (see above) makes the
-    # default check false even though build itself succeeded. Same fix as
-    # build's own condition: check the direct dependency explicitly instead.
-    if: always() && needs.build.result == 'success'
 
     permissions:
       contents: read
