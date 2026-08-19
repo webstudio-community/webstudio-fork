@@ -212,14 +212,62 @@ export const markAsDeleted = async (
 };
 
 /**
- * Soft-delete a single project: marks it as deleted and frees the subdomain
- * by assigning a unique random domain. Must be called once per project —
- * never in a bulk update — so every row gets its own unique domain.
+ * Take every published copy of a project offline.
+ *
+ * Must run before the subdomain is freed below: that update replaces `domain`
+ * with a random value, and the publisher keys its routing on the original
+ * hostname, so afterwards there is no way to tell it what to remove and the
+ * site keeps serving at its old address with nothing pointing at it.
+ *
+ * NOT_IMPLEMENTED is expected wherever no self-hosted publisher is configured.
+ */
+const unpublishProjectHostnames = async (
+  projectId: string,
+  context: AppContext
+) => {
+  const { deploymentTrpc, env } = context.deployment;
+
+  const result = await context.postgrest.client
+    .from("Project")
+    .select("domain, domainsVirtual(domain)")
+    .eq("id", projectId)
+    .single();
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  const projectDomain = result.data.domain;
+  const hostnames = [
+    projectDomain.includes(".") || env.PUBLISHER_HOST === ""
+      ? projectDomain
+      : `${projectDomain}.${env.PUBLISHER_HOST}`,
+    ...result.data.domainsVirtual.map(({ domain }) => domain),
+  ];
+
+  for (const domain of hostnames) {
+    const unpublished = await deploymentTrpc.unpublish.mutate({ domain });
+    if (
+      unpublished.success === false &&
+      unpublished.error !== "NOT_IMPLEMENTED"
+    ) {
+      throw new Error(`Failed to unpublish ${domain}: ${unpublished.error}`);
+    }
+  }
+};
+
+/**
+ * Soft-delete a single project: takes its published sites offline, then marks
+ * it as deleted and frees the subdomain by assigning a unique random domain.
+ * Must be called once per project — never in a bulk update — so every row gets
+ * its own unique domain.
  */
 export const softDeleteProject = async (
   projectId: string,
   context: AppContext
 ) => {
+  await unpublishProjectHostnames(projectId, context);
+
   const result = await context.postgrest.client
     .from("Project")
     .update({
