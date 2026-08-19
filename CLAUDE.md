@@ -170,10 +170,17 @@ package, check whether it's declared directly in `apps/builder/package.json` fir
 
 `scripts/verify-standalone-deps.mjs` checks for this automatically: it scans the
 compiled server bundle for bare imports and confirms each resolves from a given
-pruned `node_modules`. `.github/workflows/verify-standalone-deps.yml` runs it
-against the Dockerfile's `builder` stage — directly on PRs into `develop` (fast
-feedback, non-blocking), and as a `needs` gate in `docker-publish.yml` so a push
-to `develop` only builds/publishes an image once the check passes.
+pruned `node_modules`. Its specifier regex requires an actual `import`/`export`
+keyword before the `from` clause (not just `from "..."` anywhere) — the bundle
+embeds unrelated data with literal `"from"` keys (e.g. char-range tables), which
+a looser match misreads as import specifiers. `.github/workflows/verify-standalone-deps.yml`
+runs it against the Dockerfile's `builder` stage — directly on PRs into `develop`
+(fast feedback, non-blocking), and as a gate in `docker-publish.yml` so a push to
+`develop` only builds/publishes an image once the check passes. That gate job is
+skipped on non-push events (PR/release/workflow_dispatch); GitHub Actions skips a
+`needs:`-dependent job by default when the needed job was itself skipped, so the
+downstream build job spells out `if: needs.verify-standalone-deps.result == 'success' || ... == 'skipped'`
+to still run unconditionally on those events instead of cascading to skipped.
 
 ---
 
