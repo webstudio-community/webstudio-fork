@@ -22,8 +22,15 @@ const nodeModulesDir = resolve(nodeModulesDirArg);
 // reserved words, so requiring one directly before `from`, with no quote or
 // `;` in between (i.e. still inside the same import clause), is safe.
 const specifierPatterns = [
-  // import ... from "x" / export ... from "x"
-  /\b(?:import|export)\b[^;'"]*?\bfrom\s*["']([^"']+)["']/g,
+  // import ... from "x" / export ... from "x". The gap between the keyword
+  // and "from" only allows characters that can legally appear in an import
+  // clause (identifiers, braces, comma, `*`, whitespace) — nothing else,
+  // and never a newline, since bundlers always emit these on one line. This
+  // keeps a real "import"/"export" occurrence inside a bundled dependency's
+  // own source (e.g. a vendored parser using those words for unrelated
+  // reasons) from spanning into unconnected code to reach some later,
+  // unrelated "from" identifier.
+  /\b(?:import|export)\b[\w{}, *$]*?\bfrom\s*["']([^"']+)["']/g,
   // import "x" (side-effect) / import("x") (dynamic)
   /\bimport\s*\(?\s*["']([^"']+)["']/g,
   // require("x")
