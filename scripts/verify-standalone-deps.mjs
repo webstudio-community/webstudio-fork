@@ -179,7 +179,10 @@ const extractSpecifiers = (source) => {
         while (k < n && /\s/.test(source[k])) k++;
         if (source[k] === "(") {
           pending = "call-paren";
-        } else if (word === "import" && (source[k] === '"' || source[k] === "'" || source[k] === "`")) {
+        } else if (
+          word === "import" &&
+          (source[k] === '"' || source[k] === "'" || source[k] === "`")
+        ) {
           // Side-effect import: `import "x";` — waiting for the string with
           // only whitespace in between, same shape as the "from" state.
           pending = "from";
@@ -207,7 +210,11 @@ const extractSpecifiers = (source) => {
           pending = null;
         }
         // else: an ordinary binding identifier or "as" — stay in "clause".
-      } else if (pending !== "from" && pending !== "call-paren" && pending !== "call-string") {
+      } else if (
+        pending !== "from" &&
+        pending !== "call-paren" &&
+        pending !== "call-string"
+      ) {
         pending = null;
       }
       i = j;
