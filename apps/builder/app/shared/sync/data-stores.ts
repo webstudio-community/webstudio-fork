@@ -67,6 +67,10 @@ export const $projectSettings = atom<undefined | ProjectSettings>();
 
 export const $publisherHost = atom<string>("wstd.work");
 
+export const $publisherHostConfigured = atom<boolean>(true);
+
+export const $secureCookie = atom<boolean>(true);
+
 export const readBuilderStateStores = () => ({
   pages: $pages.get(),
   assets: $assets.get(),
@@ -103,6 +107,8 @@ const getInitialDataStoreValues = () => ({
   marketplaceProduct: undefined,
   projectSettings: undefined,
   publisherHost: "wstd.work",
+  publisherHostConfigured: true,
+  secureCookie: true,
 });
 
 /**
@@ -126,4 +132,6 @@ export const resetDataStores = () => {
   $marketplaceProduct.set(initial.marketplaceProduct);
   $projectSettings.set(initial.projectSettings);
   $publisherHost.set(initial.publisherHost);
+  $publisherHostConfigured.set(initial.publisherHostConfigured);
+  $secureCookie.set(initial.secureCookie);
 };

@@ -226,6 +226,7 @@ export const Dashboard = () => {
   const {
     user,
     publisherHost,
+    secureCookie,
     projectToClone,
     projects,
     workspaces,
@@ -371,6 +372,7 @@ export const Dashboard = () => {
           <Projects
             projects={projects}
             publisherHost={publisherHost}
+            secureCookie={secureCookie}
             projectsTags={user.projectsTags}
             currentWorkspaceId={currentWorkspaceId}
             workspace={currentWorkspace}

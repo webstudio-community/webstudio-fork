@@ -33,12 +33,14 @@ const prefetchImageBackground = declareCssVar(
 
 const PublishedLink = ({
   domain,
+  secure,
   tabIndex,
 }: {
   domain: string;
+  secure: boolean;
   tabIndex: number;
 }) => {
-  const publishedOrigin = `https://${domain}`;
+  const publishedOrigin = `${secure ? "https" : "http"}://${domain}`;
   return (
     <Link
       href={publishedOrigin}
@@ -57,6 +59,7 @@ const PublishedLink = ({
 type ProjectCardProps = {
   project: DashboardProject;
   publisherHost: string;
+  secureCookie: boolean;
   projectsTags: User["projectsTags"];
 };
 
@@ -73,6 +76,7 @@ export const ProjectCard = ({
     domainsVirtual,
   },
   publisherHost,
+  secureCookie,
   projectsTags,
   ...props
 }: ProjectCardProps) => {
@@ -82,6 +86,10 @@ export const ProjectCard = ({
       d.status === "ACTIVE" && d.verified
   )?.domain;
   const displayDomain = customDomain ?? `${domain}.${publisherHost}`;
+  // Custom domains are real production domains (Let's Encrypt) and always use
+  // https; the built-in <slug>.<publisherHost> domain may be plain http when
+  // self-hosted locally without TLS in front.
+  const isSecureDomain = customDomain !== undefined || secureCookie;
   const [openDialog, setOpenDialog] = useState<DialogType | undefined>();
   const [isHidden, setIsHidden] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -211,7 +219,11 @@ export const ProjectCard = ({
             </Tooltip>
           </Flex>
           {isPublished ? (
-            <PublishedLink domain={displayDomain} tabIndex={-1} />
+            <PublishedLink
+              domain={displayDomain}
+              secure={isSecureDomain}
+              tabIndex={-1}
+            />
           ) : (
             <Text color="subtle">Not published</Text>
           )}
