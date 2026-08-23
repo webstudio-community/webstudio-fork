@@ -146,6 +146,10 @@ if (!parseResult.success) {
 const env = {
   ...parseResult.data,
   SECURE_COOKIE: parseResult.data.ALLOW_INSECURE_COOKIES !== "true",
+  // PUBLISHER_HOST always resolves to a value (defaults to "wstd.work"), so this
+  // tracks whether a self-hoster actually set it, to warn them otherwise.
+  PUBLISHER_HOST_CONFIGURED:
+    rawEnv.PUBLISHER_HOST !== undefined && rawEnv.PUBLISHER_HOST.length > 0,
 };
 
 // Reject default OAuth secrets in production.

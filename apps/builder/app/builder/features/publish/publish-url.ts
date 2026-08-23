@@ -1,9 +1,9 @@
-const ensureProtocol = (domain: string) => {
+const ensureProtocol = (domain: string, secure: boolean) => {
   try {
     return new URL(domain);
   } catch {
     const url = new URL(`//${domain}`, "https://default.invalid");
-    url.protocol = "https:";
+    url.protocol = secure ? "https:" : "http:";
     return url;
   }
 };
@@ -13,13 +13,18 @@ export const getPublishUrl = ({
   pathname,
   password,
   username,
+  secure = true,
 }: {
   domain: string;
   pathname: string;
   username?: string;
   password?: string;
+  // Only the built-in <project>.<publisherHost> domain can be plain http,
+  // for self-hosted local testing without TLS in front. Custom domains are
+  // real production domains (Let's Encrypt via Entri) and must stay https.
+  secure?: boolean;
 }) => {
-  const url = ensureProtocol(domain);
+  const url = ensureProtocol(domain, secure);
   url.pathname = pathname || "/";
 
   if (username && password) {
