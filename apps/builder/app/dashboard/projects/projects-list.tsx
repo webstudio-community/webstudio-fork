@@ -69,6 +69,7 @@ const tableStyles = css({
 type ProjectsListItemProps = {
   project: DashboardProject;
   publisherHost: string;
+  secureCookie: boolean;
   projectsTags: User["projectsTags"];
 };
 
@@ -84,6 +85,7 @@ export const ProjectsListItem = ({
     domainsVirtual,
   },
   publisherHost,
+  secureCookie,
   projectsTags,
 }: ProjectsListItemProps) => {
   const customDomain = domainsVirtual?.find(
@@ -91,6 +93,11 @@ export const ProjectsListItem = ({
       d.status === "ACTIVE" && d.verified
   )?.domain;
   const displayDomain = customDomain ?? `${domain}.${publisherHost}`;
+  // Custom domains are real production domains (Let's Encrypt) and always use
+  // https; the built-in <slug>.<publisherHost> domain may be plain http when
+  // self-hosted locally without TLS in front.
+  const protocol =
+    customDomain !== undefined || secureCookie ? "https" : "http";
   const [openDialog, setOpenDialog] = useState<DialogType | undefined>();
   const [isHidden, setIsHidden] = useState(false);
 
@@ -117,7 +124,7 @@ export const ProjectsListItem = ({
               </Link>
               {isPublished && (
                 <Link
-                  href={`https://${displayDomain}`}
+                  href={`${protocol}://${displayDomain}`}
                   target="_blank"
                   rel="noreferrer"
                   color="subtle"
@@ -174,6 +181,7 @@ export const ProjectsListItem = ({
 type ProjectsListProps = {
   projects: Array<DashboardProject>;
   publisherHost: string;
+  secureCookie: boolean;
   projectsTags: User["projectsTags"];
   sortBy?: SortField;
   sortOrder?: SortOrder;
@@ -191,6 +199,7 @@ const columns: Array<{ field: SortField; label: string } | null> = [
 export const ProjectsList = ({
   projects,
   publisherHost,
+  secureCookie,
   projectsTags,
   sortBy,
   sortOrder,
@@ -247,6 +256,7 @@ export const ProjectsList = ({
               key={project.id}
               project={project}
               publisherHost={publisherHost}
+              secureCookie={secureCookie}
               projectsTags={projectsTags}
             />
           ))}

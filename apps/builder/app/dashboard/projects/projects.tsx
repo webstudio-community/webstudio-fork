@@ -38,6 +38,7 @@ import { ProjectsList } from "./projects-list";
 export const ProjectsGrid = ({
   projects,
   publisherHost,
+  secureCookie,
   projectsTags,
 }: ProjectsProps) => {
   return (
@@ -56,6 +57,7 @@ export const ProjectsGrid = ({
               <ProjectCard
                 project={project}
                 publisherHost={publisherHost}
+                secureCookie={secureCookie}
                 projectsTags={projectsTags}
               />
             </ListItem>
@@ -69,6 +71,7 @@ export const ProjectsGrid = ({
 type ProjectsProps = {
   projects: Array<DashboardProject>;
   publisherHost: string;
+  secureCookie: boolean;
   projectsTags: User["projectsTags"];
   currentWorkspaceId?: string;
   workspace?: WorkspaceWithRelation;

@@ -10,6 +10,7 @@ export type DashboardData = {
   planFeatures: PlanFeatures;
   purchases: Array<Purchase>;
   publisherHost: string;
+  secureCookie: boolean;
   role: Role | "own";
   projectToClone?: {
     authToken: string;
