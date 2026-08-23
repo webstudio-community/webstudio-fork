@@ -50,6 +50,12 @@ test.each([
     "https://apps.webstudio.is",
     undefined,
   ],
+  [
+    "http localhost (self-hosted, no TLS termination)",
+    "http://p-090e6e14-ae50-4b2e-bd22-71733cec05bb.localhost:3000",
+    "http://localhost:3000",
+    "090e6e14-ae50-4b2e-bd22-71733cec05bb",
+  ],
 ] as const)("parseBuilderUrl %s", (_name, url, sourceOrigin, projectId) => {
   expect(parseBuilderUrl(url)).toEqual({ projectId, sourceOrigin });
 });
