@@ -44,6 +44,10 @@ export const createFramework = async (
     join(templatesDirectory, "html", "+data.ts"),
     "utf8"
   );
+  const sitemapPluginTemplate = await readFile(
+    join(templatesDirectory, "sitemap-plugin.ts"),
+    "utf8"
+  );
 
   // cleanup route templates after reading to not bloat generated code
   await cleanupFrameworkTemplates(options);
@@ -95,6 +99,13 @@ export const createFramework = async (
     },
     xml: () => [],
     text: () => [],
-    defaultSitemap: () => [],
+    // vike prerenders a route to <route>/index.html, so /sitemap.xml cannot be
+    // expressed as a page. Emit it from the client build instead.
+    defaultSitemap: () => [
+      {
+        file: join("app", "sitemap-plugin.ts"),
+        template: sitemapPluginTemplate,
+      },
+    ],
   };
 };
