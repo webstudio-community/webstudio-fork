@@ -67,6 +67,7 @@ const data = {
   planFeatures,
   purchases: [],
   publisherHost: "https://wstd.work",
+  secureCookie: true,
   projects,
   role: "own" as const,
   workspaces: [],

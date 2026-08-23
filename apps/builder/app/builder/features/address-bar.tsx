@@ -40,7 +40,11 @@ import {
   $stagingUsername,
 } from "~/shared/nano-states";
 import { $currentSystem, updateCurrentSystem } from "~/shared/system";
-import { $project, $publisherHost } from "~/shared/sync/data-stores";
+import {
+  $project,
+  $publisherHost,
+  $secureCookie,
+} from "~/shared/sync/data-stores";
 import { getPublishUrl } from "./publish/publish-url";
 
 const $selectedPageHistory = computed($selectedPage, (page): string[] =>
@@ -86,6 +90,7 @@ const useCopyUrl = (pageUrl: string) => {
 const usePublishedPageUrl = (pathname: string) => {
   const project = useStore($project);
   const publisherHost = useStore($publisherHost);
+  const secureCookie = useStore($secureCookie);
   const stagingUsername = useStore($stagingUsername);
   const stagingPassword = useStore($stagingPassword);
 
@@ -98,6 +103,7 @@ const usePublishedPageUrl = (pathname: string) => {
     pathname,
     username: stagingUsername,
     password: stagingPassword,
+    secure: secureCookie,
   }).toString();
 };
 
