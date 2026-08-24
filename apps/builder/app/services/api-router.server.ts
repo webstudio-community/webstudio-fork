@@ -952,6 +952,7 @@ export const apiRouter = router({
         domains: z.array(z.string()).optional(),
         message: z.string().optional(),
         idempotencyKey: z.string().optional(),
+        buildMode: z.enum(["ssg", "ssr", "cloudflare"]).optional(),
       }),
       "edit",
       async ({ auth, ctx, input }) => {
@@ -960,7 +961,12 @@ export const apiRouter = router({
           input.domains ?? getDefaultPublishDomains(project, input.target);
         assertApiPublishDomains({ auth, domains, project });
         const { build, deploymentNotImplemented } = await publishProject(
-          { project, domains, target: input.target },
+          {
+            project,
+            domains,
+            target: input.target,
+            buildMode: input.buildMode,
+          },
           ctx
         );
         return {

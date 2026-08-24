@@ -216,10 +216,16 @@ export const publishProject = async (
     project,
     domains,
     target,
+    buildMode,
   }: {
     project: LoadedProject;
     domains: string[];
     target: PublishTarget;
+    /**
+     * Self-hosting build mode, forwarded to the publisher service.
+     * When omitted, the deployment schema default applies.
+     */
+    buildMode?: "ssg" | "ssr" | "cloudflare";
   },
   context: AppContext
 ) => {
@@ -242,6 +248,7 @@ export const publishProject = async (
     buildId: build.id,
     branchName: env.GITHUB_REF_NAME,
     destination: "saas",
+    buildMode,
     logProjectName: `${project.title} - ${project.id}`,
   });
 

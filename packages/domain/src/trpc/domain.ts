@@ -99,6 +99,7 @@ export const domainRouter = router({
               project,
               domains,
               target: getPublishTargetForDomains(project, domains),
+              buildMode: input.buildMode,
             },
             ctx
           );
