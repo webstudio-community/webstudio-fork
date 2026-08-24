@@ -1740,6 +1740,7 @@ export const prebuild = async (options: {
     })) {
       const content = template
         .replaceAll("__CONSTANTS__", importFrom("./app/constants.mjs", file))
+        .replaceAll("__WEBHOOK_FORM__", importFrom("./app/webhook-form", file))
         .replaceAll(
           "__SITEMAP__",
           importFrom(`./app/__generated__/$resources.sitemap.xml`, file)

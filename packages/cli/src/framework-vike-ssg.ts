@@ -54,6 +54,16 @@ export const createFramework = async (
 
   const { components, metas, buildHooks } = createFrameworkComponentRegistry();
 
+  // SSG output has no server-side action handler, so Webhook Form must resolve
+  // its action resource from context and POST from the browser. That
+  // implementation ships with the generated site (app/webhook-form.tsx), not
+  // the published @webstudio-is/sdk-components-react (upstream's plain
+  // server-submit <form>). Every generated component module lives in
+  // app/__generated__/, so a fixed "../webhook-form" specifier resolves.
+  if (components.Form !== undefined) {
+    components.Form = "../webhook-form:Form";
+  }
+
   return {
     metas,
     components,

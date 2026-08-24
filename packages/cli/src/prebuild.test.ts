@@ -2598,6 +2598,25 @@ sitemap.map((page) => page.path);`
     await writeSiteData(siteData);
 
     await prebuild({ assets: false, template: ["ssg"] });
+
+    // The Webhook Form client-POST implementation and ActionResourcesContext
+    // ship in the generated site (app/webhook-form.tsx), never imported from
+    // @webstudio-is/sdk-components-react: SSG sites install that package from
+    // public npm (upstream's build), which has neither symbol. Importing it
+    // from there breaks `vite build` for every published SSG site.
+    const pageTemplate = await readFile("pages/index/+Page.tsx", "utf8");
+    expect(pageTemplate).toMatch(
+      /import \{ ActionResourcesContext \} from "[^"]*\/webhook-form"/
+    );
+    const generatedComponent = await readFile(
+      "app/__generated__/_index.tsx",
+      "utf8"
+    );
+    expect(generatedComponent).toContain('from "../webhook-form"');
+    expect(generatedComponent).not.toMatch(
+      /import \{[^}]*\bForm\b[^}]*\} from "@webstudio-is\/sdk-components-react/
+    );
+
     await symlink(join(originalCwd, "node_modules"), "node_modules", "dir");
     await runGeneratedCommand("vite", ["build"]);
     await runGeneratedCommand("vike", ["prerender"]);
