@@ -269,6 +269,7 @@ export const loadBuilderDataByProjectId = async (
     project,
     publisherHost: env.PUBLISHER_HOST,
     publisherHostConfigured: env.PUBLISHER_HOST_CONFIGURED,
+    selfHostedPublisherConfigured: env.SELF_HOSTED_PUBLISHER_CONFIGURED,
     secureCookie: env.SECURE_COOKIE,
   };
 };
