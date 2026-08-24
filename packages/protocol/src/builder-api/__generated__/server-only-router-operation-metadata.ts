@@ -1383,6 +1383,10 @@ export const serverOnlyRouterOperationMetadata = {
         idempotencyKey: {
           type: "string",
         },
+        buildMode: {
+          type: "string",
+          enum: ["ssg", "ssr", "cloudflare"],
+        },
       },
       required: ["target"],
     },

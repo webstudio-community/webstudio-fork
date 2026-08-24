@@ -65,7 +65,12 @@ import {
   setActiveSidebarPanel,
 } from "../../shared/nano-states";
 import { $project } from "~/shared/sync/data-stores";
-import { Domains, PENDING_TIMEOUT, getPublishStatusAndText } from "./domains";
+import {
+  Domains,
+  PENDING_TIMEOUT,
+  getPendingTimeout,
+  getPublishStatusAndText,
+} from "./domains";
 import { CollapsibleDomainSection } from "./collapsible-domain-section";
 import {
   CheckCircleIcon,
@@ -606,7 +611,7 @@ const Publish = ({
     }
 
     let sleepTime = 15000;
-    const timeToFinish = Date.now() + PENDING_TIMEOUT + 2 * sleepTime;
+    const timeToFinish = Date.now() + getPendingTimeout() + 2 * sleepTime;
 
     // Wait until project is published or failed
     while (Date.now() < timeToFinish) {

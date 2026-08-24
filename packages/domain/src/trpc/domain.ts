@@ -93,7 +93,10 @@ export const domainRouter = router({
         if (input.destination === "saas") {
           const project = await projectApi.loadById(input.projectId, ctx);
           const domains = getVerifiedPublishDomains(project, input.domains);
-          await publishProject({ project, domains }, ctx);
+          await publishProject(
+            { project, domains, buildMode: input.buildMode },
+            ctx
+          );
           return { success: true as const };
         }
 
