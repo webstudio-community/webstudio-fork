@@ -6,6 +6,7 @@ import {
   ReactSdkContext,
 } from "@webstudio-is/react-sdk/runtime";
 import { LinkCurrentUrlContext } from "@webstudio-is/sdk-components-react";
+import { ActionResourcesContext } from "__WEBHOOK_FORM__";
 import { assetBaseUrl, imageLoader } from "__CONSTANTS__";
 import { Page, breakpoints, siteName } from "__CLIENT__";
 
@@ -26,7 +27,7 @@ const PageBoundary = memo(
 );
 
 const PageComponent = ({ data }: { data: PageContext["data"] }) => {
-  const { system, resources, url, pageMeta } = data;
+  const { system, resources, actionResources, url, pageMeta } = data;
   const pageKey = getPageKey(url);
   const sdkContext = useMemo(
     () => ({
@@ -38,12 +39,18 @@ const PageComponent = ({ data }: { data: PageContext["data"] }) => {
     }),
     [resources]
   );
+  const actionResourcesMap = useMemo(
+    () => new Map(Object.entries(actionResources)),
+    [actionResources]
+  );
 
   return (
     <ReactSdkContext.Provider value={sdkContext}>
-      <LinkCurrentUrlContext.Provider value={url}>
-        <PageBoundary pageKey={pageKey} system={system} />
-      </LinkCurrentUrlContext.Provider>
+      <ActionResourcesContext.Provider value={actionResourcesMap}>
+        <LinkCurrentUrlContext.Provider value={url}>
+          <PageBoundary pageKey={pageKey} system={system} />
+        </LinkCurrentUrlContext.Provider>
+      </ActionResourcesContext.Provider>
       <PageSettingsMeta
         url={url}
         pageMeta={pageMeta}
