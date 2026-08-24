@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import vike from "vike/plugin";
-import { sitemapPlugin } from "./app/route-templates/sitemap-plugin";
+import { sitemapPlugin } from "./app/sitemap-plugin";
 
 const sourceConditions =
   process.env.WEBSTUDIO_LOCAL_CLI_BOOTSTRAPPED === "1" ? ["webstudio"] : [];
