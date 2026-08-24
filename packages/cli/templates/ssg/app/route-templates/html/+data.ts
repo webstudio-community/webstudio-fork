@@ -68,11 +68,15 @@ export const data = async (pageContext: PageContextServer) => {
     url
   );
   const pageMeta = getPageMeta({ system, resources });
+  // Not fetched here: Webhook Form resolves and posts to it client-side,
+  // since the SSG output has no server-side action handler.
+  const actionResources = Object.fromEntries(getResources({ system }).action);
 
   return {
     url: url.href,
     system,
     resources,
+    actionResources,
     pageMeta,
   } satisfies PageContextServer["data"];
 };
