@@ -10,6 +10,8 @@ This is a community fork. `develop` is maintained as `upstream/main` + a small p
 
 `bundleVersion` (in `packages/protocol/src/schema.ts`) is a contract hash of the schema. The fork's self-hosting patches change the schema, so its hash differs from the (upstream-generated) stamps committed in `fixtures/*/.webstudio/data.json`, failing `fixtures.test.ts`. After changing the bundle schema — or after an upstream sync — run `pnpm fixtures:restamp` and commit. The `sync-upstream` workflow already does this automatically after a clean rebase; `pnpm fixtures:restamp --check` fails on drift (CI).
 
+The officially-published `webstudio` npm CLI is built from upstream's schema, so it sends the upstream hash — any fork-only field added to `publishedProjectBundle` that stays in the hash breaks that CLI against a self-hosted fork instance for every version, not just old ones (see `assertCliBundleVersion` in `apps/builder/app/services/build-router.server.ts`). Fork-only additive fields the CLI itself never reads/writes (e.g. `customDomains`, server->publisher only) must be `.omit()`-ed from the schema passed to `createContractVersion` so the hash stays aligned with upstream's.
+
 Because both sides re-generate that stamp, it conflicts on most syncs even though it is not real content. The `sync-upstream` workflow therefore **auto-resolves rebase conflicts that touch only `fixtures/*/.webstudio/data.json`** (takes the upstream stamp, then re-stamps), and only opens a manual-conflict issue when a real code file also conflicts. These fixture files are force-tracked despite the `.webstudio` ignore rule — the negations in `.gitignore` keep the pre-commit hook from choking on re-stamps.
 
 ## Overview
