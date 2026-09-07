@@ -29,6 +29,11 @@ export const deployment = z.union([
      */
     projectDomain: z.string().optional(),
     excludeWstdDomainFromSearch: z.boolean().optional(),
+    // Self-hosting only: the buildMode this deployment was actually published
+    // with ("ssg" | "ssr" | "cloudflare"). Recorded so the Publish dialog can
+    // warn when republishing with a different mode — a domain's DNS record
+    // targets the old mode's destination and may need updating.
+    buildMode: z.enum(["ssg", "ssr", "cloudflare"]).optional(),
   }),
 ]);
 

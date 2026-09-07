@@ -197,10 +197,12 @@ const createSaasDeployment = ({
   project,
   domains,
   target,
+  buildMode,
 }: {
   project: LoadedProject;
   domains: string[];
   target: PublishTarget;
+  buildMode?: "ssg" | "ssr" | "cloudflare";
 }): Deployment => ({
   destination: "saas",
   target,
@@ -209,6 +211,7 @@ const createSaasDeployment = ({
   excludeWstdDomainFromSearch: project.domainsVirtual.some(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ),
+  buildMode,
 });
 
 export const publishProject = async (
@@ -232,7 +235,7 @@ export const publishProject = async (
   const build = await createProductionBuild(
     {
       projectId: project.id,
-      deployment: createSaasDeployment({ project, domains, target }),
+      deployment: createSaasDeployment({ project, domains, target, buildMode }),
     },
     context
   );

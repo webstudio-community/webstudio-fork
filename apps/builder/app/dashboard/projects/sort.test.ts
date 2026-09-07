@@ -121,6 +121,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-03-01T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
         createMockProject({
@@ -134,6 +135,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-01-15T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
         createMockProject({
@@ -147,6 +149,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-02-01T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
       ];
@@ -177,6 +180,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-02-01T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
         createMockProject({
@@ -210,6 +214,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-03-01T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
         createMockProject({
@@ -223,6 +228,7 @@ describe("sortProjects", () => {
             createdAt: "2024-01-01T00:00:00.000Z",
             updatedAt: "2024-01-15T00:00:00.000Z",
             publishStatus: "PUBLISHED",
+            buildMode: null,
           },
         }),
       ];
@@ -244,6 +250,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-03-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -252,6 +259,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-01-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -260,6 +268,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-02-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -280,6 +289,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-02-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -293,6 +303,7 @@ describe("sortProjects", () => {
           isPublished: false,
           latestBuildVirtual: {
             publishStatus: "PENDING",
+            buildMode: null,
             createdAt: "2024-03-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -301,6 +312,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-01-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -323,6 +335,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-02-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -336,6 +349,7 @@ describe("sortProjects", () => {
           isPublished: true,
           latestBuildVirtual: {
             publishStatus: "PUBLISHED",
+            buildMode: null,
             createdAt: "2024-01-01T00:00:00.000Z",
           } as LatestBuildVirtual,
         }),
@@ -362,6 +376,7 @@ describe("sortProjects", () => {
           isPublished: false,
           latestBuildVirtual: {
             publishStatus: "PENDING",
+            buildMode: null,
           } as LatestBuildVirtual,
         }),
         createMockProject({
@@ -651,6 +666,7 @@ describe("sortProjects", () => {
             isPublished: true,
             latestBuildVirtual: {
               publishStatus: "PUBLISHED",
+              buildMode: null,
               createdAt: "2024-01-01T00:00:00.000Z",
             } as LatestBuildVirtual,
           }),
@@ -659,6 +675,7 @@ describe("sortProjects", () => {
             isPublished: true,
             latestBuildVirtual: {
               publishStatus: "PUBLISHED",
+              buildMode: null,
               createdAt: "2024-03-01T00:00:00.000Z",
             } as LatestBuildVirtual,
           }),
