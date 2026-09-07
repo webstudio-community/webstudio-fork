@@ -125,9 +125,43 @@ export const getPublishStatusAndText = ({
   return { statusText, status, color, Icon };
 };
 
+/**
+ * Mirrors webstudio-publisher's toCfProjectName (server.mjs) so the CNAME
+ * instructions shown here match the Cloudflare Pages project the publisher
+ * will actually create. CF Pages project names must be
+ * [a-z0-9][a-z0-9-]*[a-z0-9] and ≤ 58 chars.
+ */
+const toCfProjectName = (domain: string) =>
+  domain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 58);
+
+/**
+ * True when this domain was last successfully published with a different
+ * buildMode than the one about to be used. Its DNS record was set up (or
+ * last confirmed working) for the previous destination — a self-host target
+ * for ssg/ssr, or a Cloudflare Pages project for cloudflare — and publishing
+ * now won't fix that: DNS is the user's to update, the publisher only
+ * changes the destination.
+ */
+const getDnsMayBeStale = (
+  projectDomain: Domain,
+  buildMode: "ssg" | "ssr" | "cloudflare"
+) => {
+  const lastBuildMode = projectDomain.latestBuildVirtual?.buildMode;
+  return (
+    projectDomain.latestBuildVirtual?.publishStatus === "PUBLISHED" &&
+    lastBuildMode != null &&
+    lastBuildMode !== buildMode
+  );
+};
+
 const getStatusText = (props: {
   projectDomain: Domain;
   isLoading: boolean;
+  buildMode: "ssg" | "ssr" | "cloudflare";
 }) => {
   const status = getStatus(props.projectDomain);
 
@@ -172,18 +206,40 @@ const getStatusText = (props: {
       break;
   }
 
+  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.buildMode);
+  if (dnsMayBeStale) {
+    text = (
+      <>
+        {text}
+        <br />
+        <br />
+        The publishing method has been changed for {props.buildMode}: the DNS
+        record for this domain may still point to its previous destination.
+        Please remember to update the CNAME.
+      </>
+    );
+  }
+
   return {
-    color: props.isLoading ? cssVar("--foreground-secondary") : color,
+    color: props.isLoading
+      ? cssVar("--foreground-secondary")
+      : dnsMayBeStale
+        ? cssVar("--foreground-warning")
+        : color,
     Icon,
     text: props.isLoading ? "Loading status..." : text,
   };
 };
 
-const StatusIcon = (props: { projectDomain: Domain; isLoading: boolean }) => {
+const StatusIcon = (props: {
+  projectDomain: Domain;
+  isLoading: boolean;
+  buildMode: "ssg" | "ssr" | "cloudflare";
+}) => {
   const { color, Icon, text } = getStatusText(props);
 
   return (
-    <Tooltip content={text}>
+    <Tooltip content={text} variant="wrapped">
       <Flex
         align="center"
         justify="center"
@@ -205,11 +261,13 @@ const DomainItem = ({
   projectDomain,
   project,
   refresh,
+  buildMode,
 }: {
   initiallyOpen: boolean;
   projectDomain: Domain;
   project: Project;
   refresh: () => Promise<void>;
+  buildMode: "ssg" | "ssr" | "cloudflare";
 }) => {
   const timeSinceLastUpdateMs =
     Date.now() - new Date(projectDomain.updatedAt).getTime();
@@ -337,6 +395,7 @@ const DomainItem = ({
   const { color, text } = getStatusText({
     projectDomain,
     isLoading: false,
+    buildMode,
   });
 
   const publisherHost = useStore($publisherHost);
@@ -347,6 +406,15 @@ const DomainItem = ({
   });
   const cname = extractCname(projectDomain.domain);
   const isApexDomain = cname === "@";
+
+  // Cloudflare Pages serves from its own project, not this self-host
+  // instance — the CNAME target is the Pages project, not
+  // `customers.${publisherHost}`. See toCfProjectName above: this is what
+  // webstudio-publisher will actually create/deploy to.
+  const cnameTarget =
+    buildMode === "cloudflare"
+      ? `${toCfProjectName(project.domain)}.pages.dev`
+      : `${projectDomain.cname}.customers.${publisherHost}`;
 
   // Records for the Entri automatic DNS setup widget.
   // Entri only supports CNAME / ALIAS / TXT — A records are not included.
@@ -363,7 +431,7 @@ const DomainItem = ({
         {
           type: "CNAME" as const,
           host: cname,
-          value: `${projectDomain.cname}.customers.${publisherHost}`,
+          value: cnameTarget,
           ttl: 300,
         },
         {
@@ -415,6 +483,7 @@ const DomainItem = ({
           <StatusIcon
             isLoading={isStatusLoading}
             projectDomain={projectDomain}
+            buildMode={buildMode}
           />
 
           <CopyToClipboard
@@ -629,6 +698,7 @@ type DomainsProps = {
   domains: Domain[];
   refresh: () => Promise<void>;
   project: Project;
+  buildMode: "ssg" | "ssr" | "cloudflare";
 };
 
 export const Domains = ({
@@ -636,6 +706,7 @@ export const Domains = ({
   domains,
   refresh,
   project,
+  buildMode,
 }: DomainsProps) => {
   return (
     <>
@@ -646,6 +717,7 @@ export const Domains = ({
           initiallyOpen={newDomains.has(projectDomain.domain)}
           refresh={refresh}
           project={project}
+          buildMode={buildMode}
         />
       ))}
     </>

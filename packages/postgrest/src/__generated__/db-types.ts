@@ -486,6 +486,7 @@ export type Database = {
       latestBuildVirtual: {
         Row: {
           buildId: string;
+          buildMode: string | null;
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
@@ -495,6 +496,7 @@ export type Database = {
         };
         Insert: {
           buildId: string;
+          buildMode?: string | null;
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
@@ -504,6 +506,7 @@ export type Database = {
         };
         Update: {
           buildId?: string;
+          buildMode?: string | null;
           createdAt?: string;
           domain?: string;
           domainsVirtualId?: string;

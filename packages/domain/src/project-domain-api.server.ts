@@ -185,10 +185,12 @@ const createPublishedDeployment = ({
   project,
   domains,
   target,
+  buildMode,
 }: {
   project: LoadedProject;
   domains: string[];
   target: PublishTarget;
+  buildMode?: "ssg" | "ssr" | "cloudflare";
 }): Deployment => ({
   destination: publishedDeploymentDestination,
   target,
@@ -197,6 +199,7 @@ const createPublishedDeployment = ({
   excludeWstdDomainFromSearch: project.domainsVirtual.some(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ),
+  buildMode,
 });
 
 export const publishProject = async (
@@ -224,6 +227,7 @@ export const publishProject = async (
         project,
         domains,
         target,
+        buildMode,
       }),
     },
     context
