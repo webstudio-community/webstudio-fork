@@ -469,18 +469,45 @@ const usePublishCountdown = (isPublishing: boolean) => {
   return countdown;
 };
 
+/**
+ * Self-hosting build mode selection, persisted per-project in localStorage.
+ * Lifted out of `Publish` so `Domains` can also read the currently-selected
+ * mode — it needs it to warn when a custom domain's DNS still targets the
+ * mode that project was last actually published with.
+ */
+export const useBuildMode = (projectId: string) => {
+  const buildModeStorageKey = `buildMode:${projectId}`;
+  const [buildMode, setBuildMode] = useState<"ssg" | "ssr" | "cloudflare">(
+    () =>
+      (localStorage.getItem(buildModeStorageKey) as
+        | "ssg"
+        | "ssr"
+        | "cloudflare"
+        | null) ?? "ssr"
+  );
+  const handleBuildModeChange = (value: "ssg" | "ssr" | "cloudflare") => {
+    localStorage.setItem(buildModeStorageKey, value);
+    setBuildMode(value);
+  };
+  return [buildMode, handleBuildModeChange] as const;
+};
+
 const Publish = ({
   project,
   timesLeft,
   disabled,
   refresh,
   restrictedFeatures,
+  buildMode,
+  onBuildModeChange,
 }: {
   project: Project;
   timesLeft: number;
   disabled: boolean;
   refresh: () => Promise<void>;
   restrictedFeatures: Map<string, RestrictedFeature>;
+  buildMode: "ssg" | "ssr" | "cloudflare";
+  onBuildModeChange: (value: "ssg" | "ssr" | "cloudflare") => void;
 }) => {
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
   const [publishError, setPublishError] = useState<
@@ -496,19 +523,6 @@ const Publish = ({
     useState(false);
   const countdown = usePublishCountdown(isPublishing);
   const publisherHost = useStore($publisherHost);
-  const buildModeStorageKey = `buildMode:${project.id}`;
-  const [buildMode, setBuildMode] = useState<"ssg" | "ssr" | "cloudflare">(
-    () =>
-      (localStorage.getItem(buildModeStorageKey) as
-        | "ssg"
-        | "ssr"
-        | "cloudflare"
-        | null) ?? "ssr"
-  );
-  const handleBuildModeChange = (value: "ssg" | "ssr" | "cloudflare") => {
-    localStorage.setItem(buildModeStorageKey, value);
-    setBuildMode(value);
-  };
   const { load: loadCapabilities, data: capabilities } =
     trpcClient.domain.publisherCapabilities.useQuery();
 
@@ -754,7 +768,7 @@ const Publish = ({
                 }
               : {}
           }
-          onChange={handleBuildModeChange}
+          onChange={onBuildModeChange}
         />
       )}
 
@@ -1145,6 +1159,7 @@ const Content = (props: {
     throw new Error("Project not found");
   }
   const projectState = "idle";
+  const [buildMode, handleBuildModeChange] = useBuildMode(project.id);
 
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
 
@@ -1192,6 +1207,7 @@ const Content = (props: {
             domains={project.domainsVirtual}
             refresh={refreshProject}
             project={project}
+            buildMode={buildMode}
           />
         </RadioGroup>
       </ScrollArea>
@@ -1228,6 +1244,8 @@ const Content = (props: {
           timesLeft={maxDailyPublishesPerUser - userPublishCount}
           disabled={false}
           restrictedFeatures={restrictedFeatures}
+          buildMode={buildMode}
+          onBuildModeChange={handleBuildModeChange}
         />
       </PanelContent>
     </form>
