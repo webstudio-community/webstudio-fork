@@ -214,6 +214,23 @@ moved past the verified commit, the `build` job explicitly checks out
 develop's current tip) — otherwise a push landing in that gap could slip an
 unverified commit into the published image.
 
+### Cross-repo test images (builder ↔ publisher lockstep)
+
+The publisher bakes the fork's CLI at a specific commit, so a builder branch can
+only be publish-tested against a publisher built from the _same_ commit. On every
+PR **from a branch in this repo**, `docker-publish.yml`'s `publisher-test-image`
+job (after `merge`) dispatches `webstudio-publisher`'s `docker-publish.yml` with
+`builder_ref=<PR branch>` and a `nonce` (`pr<N>-<run_id>-<attempt>`), finds that
+run via the nonce in its run name, waits for it, then upserts one PR comment
+(marker `<!-- test-images -->`) listing both image tags —
+`builder:<branch>` and `webstudio-publisher:builder-<branch>` — to plug into
+`BUILDER_IMAGE` / `PUBLISHER_IMAGE` on the Coolify test stack. Re-runs edit the
+same comment. `docker-cleanup.yml` dispatches the publisher's cleanup for
+`builder-<branch>` when the PR closes. All of it needs the
+`PUBLISHER_DISPATCH_APP_*` secrets (the same GitHub App the develop→publisher
+trigger uses) and no-ops for forked PRs; add the `skip-publisher-test` label to
+opt a PR out.
+
 ---
 
 ## Architecture
