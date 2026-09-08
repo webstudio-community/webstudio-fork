@@ -305,3 +305,172 @@ jobs:
             -R "${{ github.repository_owner }}/webstudio-publisher" \
             --ref main
           echo "Triggered publisher rebuild (CLI will re-pin to this builder commit)."
+
+  # For a PR raised from a branch in this repo, build the matching publisher
+  # image (its bundled CLI must come from the same fork commit as the builder —
+  # see webstudio-publisher's CLAUDE.md) so the pair can be deployed together on
+  # the Coolify test stack. Dispatches the publisher's own docker-publish with
+  # builder_ref set to this PR's branch, waits for it, then upserts a single PR
+  # comment listing both image refs.
+  #
+  # Same PUBLISHER_DISPATCH_APP_* secrets as the develop→publisher trigger above
+  # (a GitHub App with actions:write on webstudio-publisher). Skips cleanly for
+  # PRs from forks (no secrets), when the app isn't configured, or when the PR
+  # carries the `skip-publisher-test` label.
+  publisher-test-image:
+    name: Build matching publisher test image
+    runs-on: ubuntu-24.04
+    needs: merge
+    timeout-minutes: 60
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-publisher-test')
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Check publisher dispatch is configured
+        id: cfg
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PUBLISHER_DISPATCH_APP_ID not set — skipping publisher test image."
+          fi
+
+      - name: Generate token to dispatch + watch the publisher
+        id: token
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.PUBLISHER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: webstudio-publisher
+
+      - name: Compute tags and nonce
+        id: tags
+        if: steps.token.outcome == 'success'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          SAFE=$(echo "$HEAD_REF" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
+          echo "branch_tag=$SAFE" >> "$GITHUB_OUTPUT"
+          echo "publisher_tag=builder-$SAFE" >> "$GITHUB_OUTPUT"
+          echo "nonce=pr${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch publisher build
+        id: dispatch
+        if: steps.tags.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+          BUILDER_REF: ${{ github.head_ref }}
+          IMAGE_TAG: ${{ steps.tags.outputs.publisher_tag }}
+          NONCE: ${{ steps.tags.outputs.nonce }}
+        run: |
+          gh workflow run docker-publish.yml -R "$REPO" --ref main \
+            -f builder_ref="$BUILDER_REF" \
+            -f image_tag="$IMAGE_TAG" \
+            -f nonce="$NONCE"
+          echo "Dispatched publisher docker-publish.yml (builder_ref=$BUILDER_REF, nonce=$NONCE)"
+
+      - name: Locate the dispatched run
+        id: find
+        if: steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+          NONCE: ${{ steps.tags.outputs.nonce }}
+        run: |
+          RUN_ID=""
+          for i in $(seq 1 20); do
+            RUN_ID=$(gh run list -R "$REPO" --workflow docker-publish.yml --event workflow_dispatch \
+              --json databaseId,displayTitle,createdAt --limit 30 \
+              --jq "[.[] | select(.displayTitle | contains(\"$NONCE\"))] | sort_by(.createdAt) | last | .databaseId // empty")
+            [ -n "$RUN_ID" ] && break
+            echo "Run not visible yet (attempt $i/20)…"
+            sleep 15
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Could not find the dispatched publisher run (nonce $NONCE)"
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$(gh run view "$RUN_ID" -R "$REPO" --json url --jq .url)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the publisher build
+        id: wait
+        if: steps.find.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+        run: gh run watch "${{ steps.find.outputs.run_id }}" -R "$REPO" --interval 30 --exit-status
+
+      - name: Upsert PR comment with test image refs
+        if: always() && steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BUILDER_TAG: ${{ steps.tags.outputs.branch_tag }}
+          PUBLISHER_TAG: ${{ steps.tags.outputs.publisher_tag }}
+          RUN_URL: ${{ steps.find.outputs.run_url }}
+          WAIT_OUTCOME: ${{ steps.wait.outcome }}
+          FIND_OUTCOME: ${{ steps.find.outcome }}
+        run: |
+          set -euo pipefail
+          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+
+          if [ "$FIND_OUTCOME" != "success" ]; then
+            PUB_STATUS="⚠️ dispatched but run could not be located"
+          else
+            case "$WAIT_OUTCOME" in
+              success) PUB_STATUS="✅ built" ;;
+              failure) PUB_STATUS="❌ build failed" ;;
+              *)       PUB_STATUS="⏳ still running" ;;
+            esac
+          fi
+          RUN_LINK=""
+          [ -n "${RUN_URL:-}" ] && RUN_LINK=" ([run]($RUN_URL))"
+
+          BODY="$RUNNER_TEMP/test-images-comment.md"
+          {
+            echo "<!-- test-images -->"
+            echo "### 🧪 Test images for this PR"
+            echo ""
+            echo "| Role | Image | Status |"
+            echo "|------|-------|--------|"
+            echo "| builder | \`ghcr.io/$OWNER_LC/builder:$BUILDER_TAG\` | ✅ built |"
+            echo "| publisher | \`ghcr.io/$OWNER_LC/webstudio-publisher:$PUBLISHER_TAG\` | ${PUB_STATUS}${RUN_LINK} |"
+            echo ""
+            echo "Point \`BUILDER_IMAGE\` / \`PUBLISHER_IMAGE\` on the Coolify test stack at these two tags — they are built from the same fork commit and must be deployed together."
+            echo ""
+            echo "<sub>Updated for \`$HEAD_SHA\` · $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
+          } > "$BODY"
+
+          CID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq 'map(select(.user.type == "Bot" and (.body | contains("<!-- test-images -->")))) | first | .id // empty')
+
+          if [ -n "$CID" ]; then
+            jq -Rs '{body: .}' "$BODY" | gh api -X PATCH "repos/$REPO/issues/comments/$CID" --input - >/dev/null
+            echo "Updated comment $CID"
+          else
+            jq -Rs '{body: .}' "$BODY" | gh api -X POST "repos/$REPO/issues/$PR/comments" --input - >/dev/null
+            echo "Created comment"
+          fi
+
+      - name: Reflect publisher build failure on this job
+        if: steps.wait.outcome == 'failure'
+        run: |
+          echo "::error::Publisher test image build did not succeed — see the comment on the PR."
+          exit 1
