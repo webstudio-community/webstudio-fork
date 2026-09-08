@@ -212,6 +212,8 @@ export const publishProject = async (
     target,
     renderMode,
     host,
+    coolifyWebhookUrl,
+    coolifyWebhookToken,
   }: {
     project: LoadedProject;
     domains: string[];
@@ -222,6 +224,9 @@ export const publishProject = async (
      */
     renderMode?: "ssg" | "ssr";
     host?: "local" | "cloudflare" | "coolify" | "ssh";
+    /** host: "coolify" — the target app's deploy webhook, forwarded, not stored. */
+    coolifyWebhookUrl?: string;
+    coolifyWebhookToken?: string;
   },
   context: AppContext
 ) => {
@@ -252,6 +257,8 @@ export const publishProject = async (
     destination: publishedDeploymentDestination,
     renderMode,
     host,
+    coolifyWebhookUrl,
+    coolifyWebhookToken,
     logProjectName: `${project.title} - ${project.id}`,
   });
 

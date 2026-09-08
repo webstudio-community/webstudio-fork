@@ -1612,6 +1612,12 @@ export const serverOnlyRouterOperationMetadata = {
           type: "string",
           enum: ["local", "cloudflare", "coolify", "ssh"],
         },
+        coolifyWebhookUrl: {
+          type: "string",
+        },
+        coolifyWebhookToken: {
+          type: "string",
+        },
       },
       required: ["target"],
     },

@@ -498,6 +498,30 @@ const usePublishCountdown = (isPublishing: boolean) => {
 const renderModeStorageKey = (projectId: string) =>
   `publish:renderMode:${projectId}`;
 const hostStorageKey = (projectId: string) => `publish:host:${projectId}`;
+const coolifyWebhookStorageKey = (projectId: string) =>
+  `publish:coolifyWebhook:${projectId}`;
+const coolifyWebhookTokenStorageKey = (projectId: string) =>
+  `publish:coolifyWebhookToken:${projectId}`;
+
+const readStored = (key: string) => {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const writeStored = (key: string, value: string) => {
+  try {
+    if (value === "") {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // localStorage unavailable — in-memory state only
+  }
+};
 
 /**
  * One-time seed from the pre-split `buildMode:<id>` key so a project keeps the
@@ -556,7 +580,32 @@ export const usePublishTarget = (projectId: string) => {
     localStorage.setItem(hostStorageKey(projectId), value);
     setHostState(value);
   };
-  return { renderMode, setRenderMode, host, setHost };
+  // host: "coolify" — the target app's deploy webhook, per project. Not stored
+  // server-side; forwarded to the publisher on each publish.
+  const [coolifyWebhookUrl, setCoolifyWebhookUrlState] = useState(() =>
+    readStored(coolifyWebhookStorageKey(projectId))
+  );
+  const [coolifyWebhookToken, setCoolifyWebhookTokenState] = useState(() =>
+    readStored(coolifyWebhookTokenStorageKey(projectId))
+  );
+  const setCoolifyWebhookUrl = (value: string) => {
+    writeStored(coolifyWebhookStorageKey(projectId), value);
+    setCoolifyWebhookUrlState(value);
+  };
+  const setCoolifyWebhookToken = (value: string) => {
+    writeStored(coolifyWebhookTokenStorageKey(projectId), value);
+    setCoolifyWebhookTokenState(value);
+  };
+  return {
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
+  };
 };
 
 const advancedPublishOpenStorageKey = "publish:advancedOpen";
@@ -603,6 +652,10 @@ const Publish = ({
   onRenderModeChange,
   host,
   onHostChange,
+  coolifyWebhookUrl,
+  onCoolifyWebhookUrlChange,
+  coolifyWebhookToken,
+  onCoolifyWebhookTokenChange,
 }: {
   project: Project;
   timesLeft: number;
@@ -617,6 +670,10 @@ const Publish = ({
   onRenderModeChange: (value: RenderMode) => void;
   host: PublishHost;
   onHostChange: (value: PublishHost) => void;
+  coolifyWebhookUrl: string;
+  onCoolifyWebhookUrlChange: (value: string) => void;
+  coolifyWebhookToken: string;
+  onCoolifyWebhookTokenChange: (value: string) => void;
 }) => {
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
   const [publishError, setPublishError] = useState<
@@ -716,6 +773,12 @@ const Publish = ({
       destination: publishedDeploymentDestination,
       renderMode,
       host,
+      coolifyWebhookUrl:
+        host === "coolify" ? coolifyWebhookUrl.trim() : undefined,
+      coolifyWebhookToken:
+        host === "coolify" && coolifyWebhookToken.trim() !== ""
+          ? coolifyWebhookToken.trim()
+          : undefined,
     });
 
     if (publishResult.success === false) {
@@ -911,6 +974,9 @@ const Publish = ({
 
   const getForm = () => buttonRef.current?.closest("form");
 
+  const missingCoolifyWebhook =
+    host === "coolify" && coolifyWebhookUrl.trim() === "";
+
   return (
     <Flex gap={2} shrink={false} direction={"column"}>
       {publishError && <Text color="destructive">{publishError}</Text>}
@@ -974,6 +1040,41 @@ const Publish = ({
                   }}
                   onChange={onHostChange}
                 />
+                {host === "coolify" && (
+                  <Flex direction="column" gap="1">
+                    <Label htmlFor="coolifyWebhookUrl">
+                      Coolify deploy webhook URL
+                    </Label>
+                    <InputField
+                      id="coolifyWebhookUrl"
+                      type="url"
+                      placeholder="https://coolify.example.com/api/v1/deploy?uuid=…"
+                      value={coolifyWebhookUrl}
+                      onChange={(event) =>
+                        onCoolifyWebhookUrlChange(event.target.value)
+                      }
+                    />
+                    <InputField
+                      id="coolifyWebhookToken"
+                      type="password"
+                      placeholder="Bearer token (optional)"
+                      value={coolifyWebhookToken}
+                      onChange={(event) =>
+                        onCoolifyWebhookTokenChange(event.target.value)
+                      }
+                    />
+                    <Text color="subtle">
+                      Create a Docker Image app on your Coolify, then paste its
+                      deploy webhook here.{" "}
+                      <Link
+                        href="https://github.com/webstudio-community/webstudio-self-host#coolify-remote-ssr"
+                        target="_blank"
+                      >
+                        Host with Coolify
+                      </Link>
+                    </Text>
+                  </Flex>
+                )}
               </Flex>
             </Collapsible.Content>
           </Flex>
@@ -987,6 +1088,7 @@ const Publish = ({
         publishDisabled={
           hasSelectedDomains === false ||
           disabled ||
+          missingCoolifyWebhook ||
           (restrictedFeatures.size > 0 && hasCustomDomainsSelected) ||
           userPublishCount >= maxDailyPublishesPerUser
         }
@@ -995,6 +1097,11 @@ const Publish = ({
           isPublishInProgress && (countdown === undefined || countdown === 0)
         }
         hasSelectedDomains={hasSelectedDomains}
+        disabledReason={
+          missingCoolifyWebhook
+            ? "Enter the Coolify deploy webhook URL in Advanced settings"
+            : undefined
+        }
         publishLabel={
           countdown !== undefined && countdown > 0
             ? `Publishing (${countdown}s)`
@@ -1376,9 +1483,16 @@ const Content = (props: {
     throw new Error("Project not found");
   }
   const projectState = "idle";
-  const { renderMode, setRenderMode, host, setHost } = usePublishTarget(
-    project.id
-  );
+  const {
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
+  } = usePublishTarget(project.id);
 
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
 
@@ -1509,6 +1623,10 @@ const Content = (props: {
             onRenderModeChange={setRenderMode}
             host={host}
             onHostChange={setHost}
+            coolifyWebhookUrl={coolifyWebhookUrl}
+            onCoolifyWebhookUrlChange={setCoolifyWebhookUrl}
+            coolifyWebhookToken={coolifyWebhookToken}
+            onCoolifyWebhookTokenChange={setCoolifyWebhookToken}
           />
         </PanelContent>
       </form>

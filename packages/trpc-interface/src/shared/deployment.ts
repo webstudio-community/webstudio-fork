@@ -14,6 +14,9 @@ export const publishInput = z.object({
   //   host       — "local" (default) | "cloudflare" | "coolify" | "ssh"
   renderMode: z.enum(["ssg", "ssr"]).default("ssg"),
   host: z.enum(["local", "cloudflare", "coolify", "ssh"]).default("local"),
+  // host: "coolify" only — the target app's deploy webhook (per site, not stored)
+  coolifyWebhookUrl: z.string().optional(),
+  coolifyWebhookToken: z.string().optional(),
   // preview support
   branchName: z.string(),
   // action log helper (not used for deployment, but for action logs readablity)
@@ -105,6 +108,8 @@ export const deploymentRouter = router({
             builderOrigin: input.builderOrigin,
             renderMode: input.renderMode,
             host: input.host,
+            coolifyWebhookUrl: input.coolifyWebhookUrl,
+            coolifyWebhookToken: input.coolifyWebhookToken,
             destination: input.destination,
           }),
         });
