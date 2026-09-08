@@ -34,6 +34,45 @@ jobs:
           package: builder
           delete-tags: ${{ steps.branch.outputs.tag }}
 
+      # A PR from a branch in this repo gets a matching publisher test image
+      # (`builder-<branch>`) built by docker-publish.yml's publisher-test-image
+      # job. Ask the publisher's own docker-cleanup to drop it — that workflow
+      # owns the GHCR deletion logic for its package. Same GitHub App as the
+      # publisher trigger in docker-publish.yml; no-op when unconfigured or for
+      # forked PRs.
+      - name: Check publisher dispatch is configured
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        id: publisher-cfg
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PUBLISHER_DISPATCH_APP_ID not set — skipping publisher image cleanup."
+          fi
+
+      - name: Generate token to clean up the publisher
+        id: publisher-token
+        if: steps.publisher-cfg.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.PUBLISHER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: webstudio-publisher
+
+      - name: Delete matching publisher test image
+        if: steps.publisher-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+          TAG: builder-${{ steps.branch.outputs.tag }}
+        run: |
+          gh workflow run docker-cleanup.yml -R "$REPO" --ref main -f tag="$TAG"
+          echo "Dispatched publisher cleanup for tag $TAG"
+
       # Full sweep, manual only — PR close cleans just its own images (above).
       # Each build pushes per-arch images by digest; retagging (e.g. moving
       # `latest` on develop pushes) strands the previous manifest and its
