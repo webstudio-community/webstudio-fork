@@ -197,12 +197,14 @@ const createSaasDeployment = ({
   project,
   domains,
   target,
-  buildMode,
+  renderMode,
+  host,
 }: {
   project: LoadedProject;
   domains: string[];
   target: PublishTarget;
-  buildMode?: "ssg" | "ssr" | "cloudflare";
+  renderMode?: "ssg" | "ssr";
+  host?: "local" | "cloudflare" | "coolify" | "ssh";
 }): Deployment => ({
   destination: "saas",
   target,
@@ -211,7 +213,8 @@ const createSaasDeployment = ({
   excludeWstdDomainFromSearch: project.domainsVirtual.some(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ),
-  buildMode,
+  renderMode,
+  host,
 });
 
 export const publishProject = async (
@@ -219,23 +222,31 @@ export const publishProject = async (
     project,
     domains,
     target,
-    buildMode,
+    renderMode,
+    host,
   }: {
     project: LoadedProject;
     domains: string[];
     target: PublishTarget;
     /**
-     * Self-hosting build mode, forwarded to the publisher service.
-     * When omitted, the deployment schema default applies.
+     * Self-hosting publish target, forwarded to the publisher service.
+     * When omitted, the deployment schema defaults apply.
      */
-    buildMode?: "ssg" | "ssr" | "cloudflare";
+    renderMode?: "ssg" | "ssr";
+    host?: "local" | "cloudflare" | "coolify" | "ssh";
   },
   context: AppContext
 ) => {
   const build = await createProductionBuild(
     {
       projectId: project.id,
-      deployment: createSaasDeployment({ project, domains, target, buildMode }),
+      deployment: createSaasDeployment({
+        project,
+        domains,
+        target,
+        renderMode,
+        host,
+      }),
     },
     context
   );
@@ -251,7 +262,8 @@ export const publishProject = async (
     buildId: build.id,
     branchName: env.GITHUB_REF_NAME,
     destination: "saas",
-    buildMode,
+    renderMode,
+    host,
     logProjectName: `${project.title} - ${project.id}`,
   });
 

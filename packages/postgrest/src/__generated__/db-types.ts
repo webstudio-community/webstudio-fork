@@ -486,32 +486,35 @@ export type Database = {
       latestBuildVirtual: {
         Row: {
           buildId: string;
-          buildMode: string | null;
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
+          host: string | null;
           projectId: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
+          renderMode: string | null;
           updatedAt: string;
         };
         Insert: {
           buildId: string;
-          buildMode?: string | null;
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
+          host?: string | null;
           projectId: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
+          renderMode?: string | null;
           updatedAt?: string;
         };
         Update: {
           buildId?: string;
-          buildMode?: string | null;
           createdAt?: string;
           domain?: string;
           domainsVirtualId?: string;
+          host?: string | null;
           projectId?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
+          renderMode?: string | null;
           updatedAt?: string;
         };
         Relationships: [

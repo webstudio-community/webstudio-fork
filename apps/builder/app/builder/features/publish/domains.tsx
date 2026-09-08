@@ -46,6 +46,7 @@ import { CopyToClipboard } from "~/shared/copy-to-clipboard";
 import { RelativeTime } from "~/builder/shared/relative-time";
 import { $currentSystem } from "~/shared/system";
 import { getPublishUrl } from "./publish-url";
+import type { PublishHost } from "./publish-target";
 
 export type Domain = Project["domainsVirtual"][number];
 
@@ -124,29 +125,26 @@ const toCfProjectName = (domain: string) =>
     .slice(0, 58);
 
 /**
- * True when this domain was last successfully published with a different
- * buildMode than the one about to be used. Its DNS record was set up (or
- * last confirmed working) for the previous destination — a self-host target
- * for ssg/ssr, or a Cloudflare Pages project for cloudflare — and publishing
- * now won't fix that: DNS is the user's to update, the publisher only
- * changes the destination.
+ * True when this domain was last successfully published to a different host
+ * than the one about to be used. Its DNS record was set up (or last confirmed
+ * working) for the previous host — this self-host instance, a Cloudflare Pages
+ * project, a Coolify app, a remote server — and publishing now won't fix that:
+ * DNS is the user's to update, the publisher only changes the destination.
+ * `renderMode` is intentionally ignored — it never changes a domain's DNS.
  */
-const getDnsMayBeStale = (
-  projectDomain: Domain,
-  buildMode: "ssg" | "ssr" | "cloudflare"
-) => {
-  const lastBuildMode = projectDomain.latestBuildVirtual?.buildMode;
+const getDnsMayBeStale = (projectDomain: Domain, host: PublishHost) => {
+  const lastHost = projectDomain.latestBuildVirtual?.host;
   return (
     projectDomain.latestBuildVirtual?.publishStatus === "PUBLISHED" &&
-    lastBuildMode != null &&
-    lastBuildMode !== buildMode
+    lastHost != null &&
+    lastHost !== host
   );
 };
 
 const getStatusText = (props: {
   projectDomain: Domain;
   isLoading: boolean;
-  buildMode: "ssg" | "ssr" | "cloudflare";
+  host: PublishHost;
 }) => {
   const status = getStatus(props.projectDomain);
 
@@ -188,16 +186,16 @@ const getStatusText = (props: {
       break;
   }
 
-  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.buildMode);
+  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.host);
   if (dnsMayBeStale) {
     text = (
       <>
         {text}
         <br />
         <br />
-        The publishing method has been changed for {props.buildMode}: the DNS
-        record for this domain may still point to its previous destination.
-        Please remember to update the CNAME.
+        The publishing destination has changed: the DNS record for this domain
+        may still point to its previous host. Please remember to update the
+        CNAME.
       </>
     );
   }
@@ -212,7 +210,7 @@ const getStatusText = (props: {
 const StatusIcon = (props: {
   projectDomain: Domain;
   isLoading: boolean;
-  buildMode: "ssg" | "ssr" | "cloudflare";
+  host: PublishHost;
 }) => {
   const { isVerifiedActive, dnsMayBeStale, text } = getStatusText(props);
 
@@ -247,13 +245,13 @@ const DomainItem = ({
   projectDomain,
   project,
   refresh,
-  buildMode,
+  host,
 }: {
   initiallyOpen: boolean;
   projectDomain: Domain;
   project: Project;
   refresh: () => Promise<void>;
-  buildMode: "ssg" | "ssr" | "cloudflare";
+  host: PublishHost;
 }) => {
   const timeSinceLastUpdateMs =
     Date.now() - new Date(projectDomain.updatedAt).getTime();
@@ -381,7 +379,7 @@ const DomainItem = ({
   const { isVerifiedActive, text } = getStatusText({
     projectDomain,
     isLoading: false,
-    buildMode,
+    host,
   });
 
   const publisherHost = useStore($publisherHost);
@@ -398,7 +396,7 @@ const DomainItem = ({
   // `customers.${publisherHost}`. See toCfProjectName above: this is what
   // webstudio-publisher will actually create/deploy to.
   const cnameTarget =
-    buildMode === "cloudflare"
+    host === "cloudflare"
       ? `${toCfProjectName(project.domain)}.pages.dev`
       : `${projectDomain.cname}.customers.${publisherHost}`;
 
@@ -469,7 +467,7 @@ const DomainItem = ({
           <StatusIcon
             isLoading={isStatusLoading}
             projectDomain={projectDomain}
-            buildMode={buildMode}
+            host={host}
           />
 
           <CopyToClipboard
@@ -678,7 +676,7 @@ type DomainsProps = {
   domains: Domain[];
   refresh: () => Promise<void>;
   project: Project;
-  buildMode: "ssg" | "ssr" | "cloudflare";
+  host: PublishHost;
 };
 
 export const Domains = ({
@@ -686,7 +684,7 @@ export const Domains = ({
   domains,
   refresh,
   project,
-  buildMode,
+  host,
 }: DomainsProps) => {
   return (
     <>
@@ -697,7 +695,7 @@ export const Domains = ({
           initiallyOpen={newDomains.has(projectDomain.domain)}
           refresh={refresh}
           project={project}
-          buildMode={buildMode}
+          host={host}
         />
       ))}
     </>

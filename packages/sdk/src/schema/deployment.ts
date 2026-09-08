@@ -29,11 +29,15 @@ export const deployment = z.union([
      */
     projectDomain: z.string().optional(),
     excludeWstdDomainFromSearch: z.boolean().optional(),
-    // Self-hosting only: the buildMode this deployment was actually published
-    // with ("ssg" | "ssr" | "cloudflare"). Recorded so the Publish dialog can
-    // warn when republishing with a different mode — a domain's DNS record
-    // targets the old mode's destination and may need updating.
-    buildMode: z.enum(["ssg", "ssr", "cloudflare"]).optional(),
+    // Self-hosting only, two orthogonal axes describing how this deployment was
+    // published. Recorded so the Publish dialog can warn when republishing to a
+    // different host — a domain's DNS record targets the old host and may need
+    // updating. `renderMode` alone never changes DNS, so the warning keys on
+    // `host`.
+    //   renderMode — "ssg" (static) | "ssr" (Node server)
+    //   host       — "local" (this self-host instance) | "cloudflare" | "coolify" | "ssh"
+    renderMode: z.enum(["ssg", "ssr"]).optional(),
+    host: z.enum(["local", "cloudflare", "coolify", "ssh"]).optional(),
   }),
 ]);
 
