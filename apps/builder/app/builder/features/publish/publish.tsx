@@ -114,6 +114,15 @@ import {
 } from "@webstudio-is/project-build/runtime";
 import { showContentDatabasePublishWarning } from "./content-database-publish-warning";
 import { showPublishWarning } from "./publish-warning";
+import {
+  isPublishTargetAvailable,
+  publishHostDescriptions,
+  publishHostLabels,
+  publishHosts,
+  publishHostUnavailableReason,
+  type PublishHost,
+  type RenderMode,
+} from "./publish-target";
 import { flushExternalContentProject } from "~/shared/external-content-roots";
 import { getPrePublishErrorMessage } from "./publish-error";
 
@@ -470,27 +479,68 @@ const usePublishCountdown = (isPublishing: boolean) => {
   return countdown;
 };
 
+const renderModeStorageKey = (projectId: string) =>
+  `publish:renderMode:${projectId}`;
+const hostStorageKey = (projectId: string) => `publish:host:${projectId}`;
+
 /**
- * Self-hosting build mode selection, persisted per-project in localStorage.
- * Lifted out of `Publish` so `Domains` can also read the currently-selected
- * mode — it needs it to warn when a custom domain's DNS still targets the
- * mode that project was last actually published with.
+ * One-time seed from the pre-split `buildMode:<id>` key so a project keeps the
+ * destination it was last published to after the (renderMode, host) split.
  */
-export const useBuildMode = (projectId: string) => {
-  const buildModeStorageKey = `buildMode:${projectId}`;
-  const [buildMode, setBuildMode] = useState<"ssg" | "ssr" | "cloudflare">(
-    () =>
-      (localStorage.getItem(buildModeStorageKey) as
-        | "ssg"
-        | "ssr"
-        | "cloudflare"
-        | null) ?? "ssr"
-  );
-  const handleBuildModeChange = (value: "ssg" | "ssr" | "cloudflare") => {
-    localStorage.setItem(buildModeStorageKey, value);
-    setBuildMode(value);
+const seedFromLegacyBuildMode = (
+  projectId: string
+): { renderMode: RenderMode; host: PublishHost } | undefined => {
+  const legacy = localStorage.getItem(`buildMode:${projectId}`);
+  if (legacy === "ssg") {
+    return { renderMode: "ssg", host: "local" };
+  }
+  if (legacy === "ssr") {
+    return { renderMode: "ssr", host: "local" };
+  }
+  if (legacy === "cloudflare") {
+    return { renderMode: "ssg", host: "cloudflare" };
+  }
+  return undefined;
+};
+
+/**
+ * Self-hosting publish target selection, persisted per-project in localStorage.
+ * Two orthogonal axes:
+ *   renderMode — "ssg" (static) | "ssr" (Node server)
+ *   host       — "local" | "cloudflare" | "coolify" | "ssh"
+ * Lifted out of `Publish` so `Domains` can also read the selected host — it
+ * needs it to warn when a custom domain's DNS still targets the host that
+ * project was last actually published to.
+ */
+export const usePublishTarget = (projectId: string) => {
+  const [renderMode, setRenderModeState] = useState<RenderMode>(() => {
+    const stored = localStorage.getItem(renderModeStorageKey(projectId));
+    if (stored === "ssg" || stored === "ssr") {
+      return stored;
+    }
+    return seedFromLegacyBuildMode(projectId)?.renderMode ?? "ssr";
+  });
+  const [host, setHostState] = useState<PublishHost>(() => {
+    const stored = localStorage.getItem(hostStorageKey(projectId));
+    if (
+      stored === "local" ||
+      stored === "cloudflare" ||
+      stored === "coolify" ||
+      stored === "ssh"
+    ) {
+      return stored;
+    }
+    return seedFromLegacyBuildMode(projectId)?.host ?? "local";
+  });
+  const setRenderMode = (value: RenderMode) => {
+    localStorage.setItem(renderModeStorageKey(projectId), value);
+    setRenderModeState(value);
   };
-  return [buildMode, handleBuildModeChange] as const;
+  const setHost = (value: PublishHost) => {
+    localStorage.setItem(hostStorageKey(projectId), value);
+    setHostState(value);
+  };
+  return { renderMode, setRenderMode, host, setHost };
 };
 
 const Publish = ({
@@ -499,16 +549,20 @@ const Publish = ({
   disabled,
   refresh,
   restrictedFeatures,
-  buildMode,
-  onBuildModeChange,
+  renderMode,
+  onRenderModeChange,
+  host,
+  onHostChange,
 }: {
   project: Project;
   timesLeft: number;
   disabled: boolean;
   refresh: () => Promise<void>;
   restrictedFeatures: Map<string, RestrictedFeature>;
-  buildMode: "ssg" | "ssr" | "cloudflare";
-  onBuildModeChange: (value: "ssg" | "ssr" | "cloudflare") => void;
+  renderMode: RenderMode;
+  onRenderModeChange: (value: RenderMode) => void;
+  host: PublishHost;
+  onHostChange: (value: PublishHost) => void;
 }) => {
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
   const [publishError, setPublishError] = useState<
@@ -532,6 +586,17 @@ const Publish = ({
       loadCapabilities(undefined);
     }
   }, [publisherHost, loadCapabilities]);
+
+  // Fall back to the always-available local host when the selected renderMode
+  // makes the current host unavailable (e.g. SSR + Cloudflare).
+  useEffect(() => {
+    if (
+      host !== "local" &&
+      isPublishTargetAvailable(capabilities, renderMode, host) === false
+    ) {
+      onHostChange("local");
+    }
+  }, [capabilities, renderMode, host, onHostChange]);
 
   useEffect(() => {
     const form = buttonRef.current?.closest("form");
@@ -579,7 +644,8 @@ const Publish = ({
       projectId: project.id,
       domains,
       destination: "saas",
-      buildMode,
+      renderMode,
+      host,
     });
 
     if (publishResult.success === false) {
@@ -735,39 +801,42 @@ const Publish = ({
       )}
 
       {publisherHost && (
-        <Select
-          fullWidth
-          value={buildMode}
-          options={["ssr", "ssg", "cloudflare"] as const}
-          getLabel={(value: "ssr" | "ssg" | "cloudflare") => {
-            if (value === "ssr") {
-              return "SSR (dynamic data)";
+        <>
+          <Select
+            fullWidth
+            value={renderMode}
+            options={["ssr", "ssg"] as const}
+            getLabel={(value: RenderMode) =>
+              value === "ssr" ? "Dynamic (SSR)" : "Static (SSG)"
             }
-            if (value === "ssg") {
-              return "SSG (static site)";
+            getDescription={(value: RenderMode) =>
+              value === "ssr"
+                ? "Dynamic data, rendered per request"
+                : "Prerendered static files, no dynamic data"
             }
-            return "Cloudflare Pages";
-          }}
-          getDescription={(value: "ssr" | "ssg" | "cloudflare") => {
-            if (value === "ssr") {
-              return "Dynamic data, rendered per request";
+            onChange={onRenderModeChange}
+          />
+          <Select
+            fullWidth
+            value={host}
+            options={publishHosts}
+            getLabel={(value: PublishHost) => publishHostLabels[value]}
+            getDescription={(value: PublishHost) =>
+              publishHostDescriptions[value]
             }
-            if (value === "ssg") {
-              return "Static files, no dynamic data";
-            }
-            return "Deploy to Cloudflare edge";
-          }}
-          getItemProps={(value) =>
-            value === "cloudflare" && !capabilities?.cloudflare
-              ? {
-                  disabled: true,
-                  title:
-                    "Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID on the publisher to enable",
-                }
-              : {}
-          }
-          onChange={onBuildModeChange}
-        />
+            getItemProps={(value: PublishHost) => {
+              const reason = publishHostUnavailableReason(
+                capabilities,
+                renderMode,
+                value
+              );
+              return reason === undefined
+                ? {}
+                : { disabled: true, title: reason };
+            }}
+            onChange={onHostChange}
+          />
+        </>
       )}
 
       <Tooltip
@@ -1157,7 +1226,9 @@ const Content = (props: {
     throw new Error("Project not found");
   }
   const projectState = "idle";
-  const [buildMode, handleBuildModeChange] = useBuildMode(project.id);
+  const { renderMode, setRenderMode, host, setHost } = usePublishTarget(
+    project.id
+  );
 
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
 
@@ -1205,7 +1276,7 @@ const Content = (props: {
             domains={project.domainsVirtual}
             refresh={refreshProject}
             project={project}
-            buildMode={buildMode}
+            host={host}
           />
         </RadioGroup>
       </ScrollArea>
@@ -1242,8 +1313,10 @@ const Content = (props: {
           timesLeft={maxDailyPublishesPerUser - userPublishCount}
           disabled={false}
           restrictedFeatures={restrictedFeatures}
-          buildMode={buildMode}
-          onBuildModeChange={handleBuildModeChange}
+          renderMode={renderMode}
+          onRenderModeChange={setRenderMode}
+          host={host}
+          onHostChange={setHost}
         />
       </PanelContent>
     </form>

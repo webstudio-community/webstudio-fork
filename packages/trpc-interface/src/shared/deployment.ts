@@ -9,8 +9,11 @@ export const publishInput = z.object({
   githubSha: z.string().optional(),
 
   destination: z.enum(["saas", "static"]),
-  // Self-hosting build mode: "ssg" (static, default), "ssr" (Node subprocess), "cloudflare"
-  buildMode: z.enum(["ssg", "ssr", "cloudflare"]).default("ssg"),
+  // Self-hosting publish target, two orthogonal axes forwarded to the publisher:
+  //   renderMode — "ssg" (static, default) | "ssr" (Node server)
+  //   host       — "local" (default) | "cloudflare" | "coolify" | "ssh"
+  renderMode: z.enum(["ssg", "ssr"]).default("ssg"),
+  host: z.enum(["local", "cloudflare", "coolify", "ssh"]).default("local"),
   // preview support
   branchName: z.string(),
   // action log helper (not used for deployment, but for action logs readablity)
@@ -40,21 +43,44 @@ export const output = z.discriminatedUnion("success", [
  *
  * When not set, publish returns NOT_IMPLEMENTED and the user is shown the CLI instructions.
  **/
+export type PublisherCapabilities = {
+  cloudflare: boolean;
+  coolify: boolean;
+  ssh: boolean;
+  // `${renderMode}:${host}` pairs the publisher can run right now, e.g.
+  // ["ssg:local", "ssr:local", "ssg:cloudflare"]. Empty from an older publisher
+  // that predates the field — the builder then falls back to `cloudflare`.
+  targets: string[];
+};
+
+const noCapabilities: PublisherCapabilities = {
+  cloudflare: false,
+  coolify: false,
+  ssh: false,
+  targets: [],
+};
+
 export const deploymentRouter = router({
-  capabilities: procedure.query(async () => {
+  capabilities: procedure.query(async (): Promise<PublisherCapabilities> => {
     const publisherUrl = process.env.SELF_HOSTED_PUBLISHER_URL;
     if (publisherUrl === undefined) {
-      return { cloudflare: false };
+      return noCapabilities;
     }
     try {
       const response = await fetch(`${publisherUrl}/capabilities`);
       if (response.ok) {
-        return (await response.json()) as { cloudflare: boolean };
+        const data = (await response.json()) as Partial<PublisherCapabilities>;
+        return {
+          cloudflare: data.cloudflare ?? false,
+          coolify: data.coolify ?? false,
+          ssh: data.ssh ?? false,
+          targets: data.targets ?? [],
+        };
       }
     } catch {
       // publisher unreachable
     }
-    return { cloudflare: false };
+    return noCapabilities;
   }),
 
   publish: procedure
@@ -77,7 +103,8 @@ export const deploymentRouter = router({
           body: JSON.stringify({
             buildId: input.buildId,
             builderOrigin: input.builderOrigin,
-            buildMode: input.buildMode,
+            renderMode: input.renderMode,
+            host: input.host,
             destination: input.destination,
           }),
         });
