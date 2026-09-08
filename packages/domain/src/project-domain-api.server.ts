@@ -185,12 +185,14 @@ const createPublishedDeployment = ({
   project,
   domains,
   target,
-  buildMode,
+  renderMode,
+  host,
 }: {
   project: LoadedProject;
   domains: string[];
   target: PublishTarget;
-  buildMode?: "ssg" | "ssr" | "cloudflare";
+  renderMode?: "ssg" | "ssr";
+  host?: "local" | "cloudflare" | "coolify" | "ssh";
 }): Deployment => ({
   destination: publishedDeploymentDestination,
   target,
@@ -199,7 +201,8 @@ const createPublishedDeployment = ({
   excludeWstdDomainFromSearch: project.domainsVirtual.some(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ),
-  buildMode,
+  renderMode,
+  host,
 });
 
 export const publishProject = async (
@@ -207,16 +210,18 @@ export const publishProject = async (
     project,
     domains,
     target,
-    buildMode,
+    renderMode,
+    host,
   }: {
     project: LoadedProject;
     domains: string[];
     target: PublishTarget;
     /**
-     * Self-hosting build mode, forwarded to the publisher service.
-     * When omitted, the deployment schema default applies.
+     * Self-hosting publish target, forwarded to the publisher service.
+     * When omitted, the deployment schema defaults apply.
      */
-    buildMode?: "ssg" | "ssr" | "cloudflare";
+    renderMode?: "ssg" | "ssr";
+    host?: "local" | "cloudflare" | "coolify" | "ssh";
   },
   context: AppContext
 ) => {
@@ -227,7 +232,8 @@ export const publishProject = async (
         project,
         domains,
         target,
-        buildMode,
+        renderMode,
+        host,
       }),
     },
     context
@@ -244,7 +250,8 @@ export const publishProject = async (
     buildId: build.id,
     branchName: env.GITHUB_REF_NAME,
     destination: publishedDeploymentDestination,
-    buildMode,
+    renderMode,
+    host,
     logProjectName: `${project.title} - ${project.id}`,
   });
 
