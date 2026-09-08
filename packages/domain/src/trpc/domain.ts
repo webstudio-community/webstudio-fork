@@ -86,6 +86,9 @@ export const domainRouter = router({
           host: z
             .enum(["local", "cloudflare", "coolify", "ssh"])
             .default("local"),
+          // host: "coolify" only — the target app's deploy webhook (per site)
+          coolifyWebhookUrl: z.string().optional(),
+          coolifyWebhookToken: z.string().optional(),
         }),
         z.object({
           projectId: z.string(),
@@ -106,6 +109,8 @@ export const domainRouter = router({
               target: getPublishTargetForDomains(project, domains),
               renderMode: input.renderMode,
               host: input.host,
+              coolifyWebhookUrl: input.coolifyWebhookUrl,
+              coolifyWebhookToken: input.coolifyWebhookToken,
             },
             ctx
           );
