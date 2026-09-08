@@ -46,6 +46,7 @@ import {
   css,
   textVariants,
   SmallIconButton,
+  Collapsible,
 } from "@webstudio-is/design-system";
 import { validateProjectDomain, type Project } from "@webstudio-is/project";
 import {
@@ -88,6 +89,8 @@ import {
   EllipsesIcon,
   PlusIcon,
   TerminalIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from "@webstudio-is/icons";
 import { AddDomain } from "./add-domain";
 import { humanizeString } from "~/shared/string-utils";
@@ -556,6 +559,36 @@ export const usePublishTarget = (projectId: string) => {
   return { renderMode, setRenderMode, host, setHost };
 };
 
+const advancedPublishOpenStorageKey = "publish:advancedOpen";
+
+/**
+ * Open/closed state of the "Advanced settings" disclosure holding the
+ * renderMode / host selectors. Persisted globally — it's a UI preference, not a
+ * per-project setting. Forced open on mount when a non-default target is
+ * selected so the user can see (and change) what they'll publish with.
+ */
+const useAdvancedPublishOpen = (hasNonDefaultTarget: boolean) => {
+  const [isOpen, setIsOpen] = useState(() => {
+    if (hasNonDefaultTarget) {
+      return true;
+    }
+    try {
+      return localStorage.getItem(advancedPublishOpenStorageKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const handleOpenChange = (open: boolean) => {
+    try {
+      localStorage.setItem(advancedPublishOpenStorageKey, String(open));
+    } catch {
+      // localStorage unavailable — keep the in-memory state only
+    }
+    setIsOpen(open);
+  };
+  return [isOpen, handleOpenChange] as const;
+};
+
 const Publish = ({
   project,
   timesLeft,
@@ -603,6 +636,9 @@ const Publish = ({
   const isPublishInProgress = isPublishing || hasPendingState;
   const countdown = usePublishCountdown(isPublishInProgress);
   const publisherHost = useStore($publisherHost);
+  const [advancedOpen, setAdvancedOpen] = useAdvancedPublishOpen(
+    renderMode !== "ssr" || host !== "local"
+  );
   const { load: loadCapabilities, data: capabilities } =
     trpcClient.domain.publisherCapabilities.useQuery();
 
@@ -885,42 +921,63 @@ const Publish = ({
       )}
 
       {publisherHost && (
-        <>
-          <Select
-            fullWidth
-            value={renderMode}
-            options={["ssr", "ssg"] as const}
-            getLabel={(value: RenderMode) =>
-              value === "ssr" ? "Dynamic (SSR)" : "Static (SSG)"
-            }
-            getDescription={(value: RenderMode) =>
-              value === "ssr"
-                ? "Dynamic data, rendered per request"
-                : "Prerendered static files, no dynamic data"
-            }
-            onChange={onRenderModeChange}
-          />
-          <Select
-            fullWidth
-            value={host}
-            options={publishHosts}
-            getLabel={(value: PublishHost) => publishHostLabels[value]}
-            getDescription={(value: PublishHost) =>
-              publishHostDescriptions[value]
-            }
-            getItemProps={(value: PublishHost) => {
-              const reason = publishHostUnavailableReason(
-                capabilities,
-                renderMode,
-                value
-              );
-              return reason === undefined
-                ? {}
-                : { disabled: true, title: reason };
-            }}
-            onChange={onHostChange}
-          />
-        </>
+        <Collapsible.Root
+          asChild
+          open={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+        >
+          <Flex direction="column" gap="2">
+            <Collapsible.Trigger asChild>
+              <Button
+                color="ghost"
+                css={{ width: "100%", justifyContent: "start" }}
+                prefix={
+                  advancedOpen ? <ChevronDownIcon /> : <ChevronRightIcon />
+                }
+              >
+                Advanced settings
+              </Button>
+            </Collapsible.Trigger>
+            <Collapsible.Content asChild>
+              <Flex direction="column" gap="2">
+                <Select
+                  fullWidth
+                  value={renderMode}
+                  options={["ssr", "ssg"] as const}
+                  getLabel={(value: RenderMode) =>
+                    value === "ssr" ? "Dynamic (SSR)" : "Static (SSG)"
+                  }
+                  getDescription={(value: RenderMode) =>
+                    value === "ssr"
+                      ? "Dynamic data, rendered per request"
+                      : "Prerendered static files, no dynamic data"
+                  }
+                  onChange={onRenderModeChange}
+                />
+                <Select
+                  fullWidth
+                  value={host}
+                  options={publishHosts}
+                  getLabel={(value: PublishHost) => publishHostLabels[value]}
+                  getDescription={(value: PublishHost) =>
+                    publishHostDescriptions[value]
+                  }
+                  getItemProps={(value: PublishHost) => {
+                    const reason = publishHostUnavailableReason(
+                      capabilities,
+                      renderMode,
+                      value
+                    );
+                    return reason === undefined
+                      ? {}
+                      : { disabled: true, title: reason };
+                  }}
+                  onChange={onHostChange}
+                />
+              </Flex>
+            </Collapsible.Content>
+          </Flex>
+        </Collapsible.Root>
       )}
 
       <PublishActions
