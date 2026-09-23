@@ -105,13 +105,24 @@ export const WebhookForm = forwardRef<
      * Add hidden field generated using js with simple jsdom detector.
      * This is used to protect form submission against very simple bots.
      * Skipped for Brave browser due to: https://github.com/brave/brave-browser/issues/46541
+     *
+     * The field is created once and refreshed on every submit. Appending a new
+     * one each time left the first (stale) value in front, which the server
+     * reads and rejects once it is older than 5 minutes.
      */
     const handleSubmitAndAddHiddenJsField = (
       event: React.FormEvent<HTMLFormElement>
     ) => {
-      const hiddenInput = document.createElement("input");
-      hiddenInput.type = "hidden";
-      hiddenInput.name = formBotFieldName;
+      const form = event.currentTarget;
+      let hiddenInput = form.querySelector<HTMLInputElement>(
+        `input[type="hidden"][name="${formBotFieldName}"]`
+      );
+      if (hiddenInput === null) {
+        hiddenInput = document.createElement("input");
+        hiddenInput.type = "hidden";
+        hiddenInput.name = formBotFieldName;
+        form.appendChild(hiddenInput);
+      }
       // Skip bot detection for Brave - Shields blocks matchMedia fingerprinting detection
       if (isBraveBrowser()) {
         hiddenInput.value = "brave";
@@ -119,7 +130,6 @@ export const WebhookForm = forwardRef<
         // Non-numeric values are utilized for logging purposes.
         hiddenInput.value = isJSDom() ? "jsdom" : Date.now().toString(16);
       }
-      event.currentTarget.appendChild(hiddenInput);
     };
 
     return (
