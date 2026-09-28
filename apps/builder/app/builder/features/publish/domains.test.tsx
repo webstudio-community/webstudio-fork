@@ -47,7 +47,11 @@ const renderStatus = (
   act(() =>
     root?.render(
       <TooltipProvider>
-        <StatusIcon projectDomain={projectDomain} isLoading={isLoading} />
+        <StatusIcon
+          projectDomain={projectDomain}
+          isLoading={isLoading}
+          host="local"
+        />
       </TooltipProvider>
     )
   );
