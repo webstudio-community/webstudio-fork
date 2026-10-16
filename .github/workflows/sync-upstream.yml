@@ -207,3 +207,24 @@ jobs:
       - name: Fail if rebase did not succeed
         if: steps.rebase.outcome == 'failure'
         run: exit 1
+
+  # Fires the Claude fix routine ONLY when something failed, so no routine run
+  # (and no report mail) happens when there is nothing to patch.
+  notify-routine:
+    name: Trigger fix routine on failure
+    needs: [sync-main, rebase-develop]
+    if: failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fire routine
+        env:
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -fsS -X POST "$ROUTINE_FIRE_URL" \
+            -H "Authorization: Bearer $ROUTINE_FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"sync-upstream failed. Failed run: $RUN_URL (see the open sync-conflict issue and the job logs).\"}"
