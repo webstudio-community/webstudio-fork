@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 8 * * 1' # every Monday at 8am UTC
   workflow_dispatch:
+    inputs:
+      regroup_threshold:
+        description: Fire the regroup routine when develop has more than this many patch commits
+        type: string
+        default: "18"
 
 jobs:
   sync-main:
@@ -228,3 +233,48 @@ jobs:
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
             -d "{\"text\":\"sync-upstream failed. Failed run: $RUN_URL (see the open sync-conflict issue and the job logs).\"}"
+
+  # Keeps the fork patch series short: once develop carries more than the
+  # threshold of commits over main (re-stamp excluded), fire the regroup
+  # routine, which folds follow-up fixes back into their patch and opens a
+  # regroup/* PR. promote-regroup.yml promotes it when CI is green.
+  check-stack:
+    name: Fire regroup routine when the patch stack is too long
+    needs: [sync-main, rebase-develop]
+    if: always() && needs.sync-main.result == 'success' && needs.rebase-develop.result != 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+      - name: Count patch commits and fire routine
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THRESHOLD: ${{ inputs.regroup_threshold || '18' }}
+          ROUTINE_REGROUP_URL: ${{ secrets.ROUTINE_REGROUP_URL }}
+          ROUTINE_REGROUP_TOKEN: ${{ secrets.ROUTINE_REGROUP_TOKEN }}
+        run: |
+          git fetch origin main develop
+          COUNT=$(git log origin/main..origin/develop --format='%s' \
+            | grep -viE 're-?stamp' | wc -l)
+          echo "patch commits on develop: $COUNT (threshold $THRESHOLD)"
+          if [ "$COUNT" -le "$THRESHOLD" ]; then
+            echo "Stack within threshold, nothing to do."
+            exit 0
+          fi
+          OPEN=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("regroup/"))] | length')
+          if [ "$OPEN" -gt 0 ]; then
+            echo "A regroup/* PR is already open, not firing again."
+            exit 0
+          fi
+          curl -fsS -X POST "$ROUTINE_REGROUP_URL" \
+            -H "Authorization: Bearer $ROUTINE_REGROUP_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"develop has $COUNT patch commits over main (threshold $THRESHOLD). Regroup them. origin/main=$(git rev-parse origin/main) origin/develop=$(git rev-parse origin/develop)\"}"
