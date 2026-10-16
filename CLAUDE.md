@@ -189,6 +189,48 @@ symlink, so Node's ESM resolution fails from the bundled server output
 direct dependency in `apps/builder/package.json`). If a similar error shows up for another
 package, check whether it's declared directly in `apps/builder/package.json` first.
 
+`scripts/verify-standalone-deps.mjs` checks for this automatically: it scans the
+compiled server bundle for bare imports and confirms each resolves from a given
+pruned `node_modules`. It uses a small string/comment/regex-literal-aware scanner,
+not a plain regex — the bundle vendors a JS parser (acorn, via Vite) whose own
+source contains text that looks like import syntax without being any (e.g.
+`kw("import", startsExpr)` keyword tables, or `from` as an ordinary parameter
+name), which a regex has no way to tell apart from real code since it can't
+see "inside a string literal". `.github/workflows/verify-standalone-deps.yml`
+runs it against the Dockerfile's `builder` stage on every PR into `develop` (fast
+feedback, non-blocking) and on every push to `develop`. `docker-publish.yml`
+doesn't build on that same push trigger directly — it watches
+verify-standalone-deps's runs via a `workflow_run` trigger and only builds/
+publishes an image once one of them succeeds on `develop`, gated by
+`github.event.workflow_run.conclusion == 'success'`. That decouples the two
+workflows entirely: docker-publish.yml doesn't even start until the check has
+already passed, instead of racing it or (as two earlier iterations of this did)
+gating on a `needs:` chain — GitHub Actions' default `success()` job condition
+walks the whole _transitive_ needs graph, not just direct `needs:`, so a check
+job skipped by design on non-push events silently skipped every job downstream
+of it too. Since `workflow_run` fires after develop's tip may have already
+moved past the verified commit, the `build` job explicitly checks out
+`github.event.workflow_run.head_sha` rather than the default (which would grab
+develop's current tip) — otherwise a push landing in that gap could slip an
+unverified commit into the published image.
+
+### Cross-repo test images (builder ↔ publisher lockstep)
+
+The publisher bakes the fork's CLI at a specific commit, so a builder branch can
+only be publish-tested against a publisher built from the _same_ commit. On every
+PR **from a branch in this repo**, `docker-publish.yml`'s `publisher-test-image`
+job (after `merge`) dispatches `webstudio-publisher`'s `docker-publish.yml` with
+`builder_ref=<PR branch>` and a `nonce` (`pr<N>-<run_id>-<attempt>`), finds that
+run via the nonce in its run name, waits for it, then upserts one PR comment
+(marker `<!-- test-images -->`) listing both image tags —
+`builder:<branch>` and `webstudio-publisher:builder-<branch>` — to plug into
+`BUILDER_IMAGE` / `PUBLISHER_IMAGE` on the Coolify test stack. Re-runs edit the
+same comment. `docker-cleanup.yml` dispatches the publisher's cleanup for
+`builder-<branch>` when the PR closes. All of it needs the
+`PUBLISHER_DISPATCH_APP_*` secrets (the same GitHub App the develop→publisher
+trigger uses) and no-ops for forked PRs; add the `skip-publisher-test` label to
+opt a PR out.
+
 ---
 
 ## Architecture
