@@ -25,3 +25,7 @@
 - [ ] updated [test cases](https://github.com/webstudio-is/webstudio/blob/main/apps/builder/docs/test-cases.md) document
 - [ ] added tests
 - [ ] if any new env variables are added, added them to `.env` file
+
+## Fork patch (webstudio-community fork only)
+
+Patch: <!-- title of the COMMUNITY_CHANGES.md patch this change belongs to, or "new: <title>" -->

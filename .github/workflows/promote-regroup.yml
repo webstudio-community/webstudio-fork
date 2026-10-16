@@ -1,0 +1,62 @@
+name: Promote regroup
+
+# The regroup routine pushes regroup/<yyyymm> and opens a PR to main so the
+# regular CI runs on the regrouped patch series. When "Main workflow" is green
+# on that exact commit, develop is moved to it (after a backup tag), provided
+# develop is still where the routine started from.
+on:
+  workflow_run:
+    workflows: ["Main workflow"]
+    types: [completed]
+
+concurrency:
+  group: promote-regroup
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote regroup branch to develop
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'regroup/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Promote
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin develop "$BRANCH"
+
+          if [ "$(git rev-parse "origin/$BRANCH")" != "$HEAD_SHA" ]; then
+            echo "Branch moved since CI ran, not promoting."; exit 0
+          fi
+
+          PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          [ -n "$PR" ] || { echo "No open PR for $BRANCH"; exit 0; }
+          EXPECTED=$(gh pr view "$PR" --json body --jq .body \
+            | sed -n 's/^Expected-Develop: *\([0-9a-f]\{40\}\).*/\1/p' | head -1)
+          [ -n "$EXPECTED" ] || { echo "PR #$PR has no Expected-Develop line."; exit 1; }
+
+          TAG="backup/develop-$(date +%Y%m%d-%H%M)"
+          git tag "$TAG" "$EXPECTED" 2>/dev/null || git tag "$TAG" origin/develop
+          git push origin "$TAG"
+
+          # --force-with-lease pinned to the sha the regroup started from:
+          # fails if develop moved (a PR merged meanwhile), humans decide then.
+          git push --force-with-lease=develop:"$EXPECTED" origin "$HEAD_SHA":refs/heads/develop
+
+          gh pr close "$PR" --delete-branch \
+            --comment "CI green: develop promoted to $HEAD_SHA. Backup tag: $TAG."
