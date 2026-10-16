@@ -1,8 +1,10 @@
 import { createCookieSessionStorage } from "@remix-run/node";
-import env from "~/env/env.server";
+import env, { secureCookieName } from "~/env/env.server";
 import { getSessionCookieNameVersion } from "./auth.server.utils";
 
-export const builderSessionCookieName = `__Host-_session_builder_session_${getSessionCookieNameVersion()}`;
+export const builderSessionCookieName = secureCookieName(
+  `_session_builder_session_${getSessionCookieNameVersion()}`
+);
 
 export const builderSessionStorage = createCookieSessionStorage({
   cookie: {
@@ -14,6 +16,6 @@ export const builderSessionStorage = createCookieSessionStorage({
     path: "/",
     httpOnly: true,
     secrets: env.AUTH_SECRET ? [env.AUTH_SECRET] : undefined,
-    secure: true,
+    secure: env.SECURE_COOKIE,
   },
 });
