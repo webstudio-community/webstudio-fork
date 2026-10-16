@@ -42,6 +42,10 @@ yarn-error.log*
 # data
 /data
 .webstudio
+# ...but keep the tracked fixture snapshots (checked by packages/protocol
+# fixtures.test.ts); without this the pre-commit hook chokes on re-stamps.
+!fixtures/*/.webstudio/
+!fixtures/*/.webstudio/data.json
 *.db
 *.db-journal
 
