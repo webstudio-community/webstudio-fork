@@ -84,6 +84,7 @@ export const publishedProjectBundle = projectBundle.extend({
   projectDomain: z.string(),
   projectTitle: z.string(),
   assetIndex: contentArtifactV1.optional(),
+  customDomains: z.array(z.string()).optional(),
 });
 export type PublishedProjectBundle = z.infer<typeof publishedProjectBundle>;
 
@@ -166,7 +167,13 @@ export const restorePointPatchTransaction: z.ZodType<
   unknown
 > = internalRestorePointPatchTransactionSchema;
 
-export const bundleVersion = createContractVersion(publishedProjectBundle, [
+// customDomains is fork-only server->publisher metadata that CLI clients never
+// read or write (see apps/builder/app/shared/db/canvas.server.ts). Excluding it
+// here keeps this hash aligned with the upstream-published CLI's hash of the
+// same schema, instead of drifting on every fork-only additive field.
+const cliBundleContract = publishedProjectBundle.omit({ customDomains: true });
+
+export const bundleVersion = createContractVersion(cliBundleContract, [
   wsAuthConfig,
 ]);
 
