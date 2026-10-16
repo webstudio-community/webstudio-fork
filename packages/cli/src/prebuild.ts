@@ -2046,6 +2046,7 @@ export const createManagedFormResourceFetch = ({ request, context, projectDomain
     })) {
       const content = template
         .replaceAll("__CONSTANTS__", importFrom("./app/constants.mjs", file))
+        .replaceAll("__WEBHOOK_FORM__", importFrom("./app/webhook-form", file))
         .replaceAll("__SITEMAP__", importFrom(sitemapModule, file))
         .replaceAll(
           "__ASSETS__",

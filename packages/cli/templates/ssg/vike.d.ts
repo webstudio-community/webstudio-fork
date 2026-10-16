@@ -1,5 +1,5 @@
 import type { ImageLoader } from "@webstudio-is/image";
-import type { PageMeta, System } from "@webstudio-is/sdk";
+import type { PageMeta, ResourceRequest, System } from "@webstudio-is/sdk";
 
 declare global {
   namespace Vike {
@@ -17,6 +17,7 @@ declare global {
         url: string;
         system: System;
         resources: Record<string, unknown>;
+        actionResources: Record<string, ResourceRequest>;
         pageMeta: PageMeta;
       };
       Page?: (props: { data: PageData }) => React.ReactNode;
