@@ -3,6 +3,8 @@ import { z } from "zod";
 const environment = z.object({
   // Authentication
   DEV_LOGIN: z.string().optional(),
+  DEV_LOGIN_EMAIL: z.string().optional(),
+  USER_PLAN: z.string().optional(),
   GH_CLIENT_ID: z.string().optional(),
   GH_CLIENT_SECRET: z.string().optional(),
   GITHUB_ISSUE_REPORT_APP_ID: z.string().optional(),
@@ -87,10 +89,16 @@ const environment = z.object({
   VERCEL: z.string().optional(),
   VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
   VERCEL_URL: z.string().optional(),
+
+  // Set by self-hosters to route publishes to their self-hosted publisher
+  // service instead of the managed providers (see packages/trpc-interface).
+  SELF_HOSTED_PUBLISHER_URL: z.string().url().optional(),
 });
 
 const rawEnv = {
   DEV_LOGIN: process.env.DEV_LOGIN,
+  DEV_LOGIN_EMAIL: process.env.DEV_LOGIN_EMAIL,
+  USER_PLAN: process.env.USER_PLAN,
   GH_CLIENT_ID: process.env.GH_CLIENT_ID,
   GH_CLIENT_SECRET: process.env.GH_CLIENT_SECRET,
   GITHUB_ISSUE_REPORT_APP_ID: process.env.GITHUB_ISSUE_REPORT_APP_ID,
@@ -128,6 +136,7 @@ const rawEnv = {
   VERCEL: process.env.VERCEL,
   VERCEL_ENV: process.env.VERCEL_ENV,
   VERCEL_URL: process.env.VERCEL_URL,
+  SELF_HOSTED_PUBLISHER_URL: process.env.SELF_HOSTED_PUBLISHER_URL,
 };
 
 const parseResult = environment.safeParse(rawEnv);
@@ -146,6 +155,11 @@ const env = {
   // tracks whether a self-hoster actually set it, to warn them otherwise.
   PUBLISHER_HOST_CONFIGURED:
     rawEnv.PUBLISHER_HOST !== undefined && rawEnv.PUBLISHER_HOST.length > 0,
+  // A self-hosted publish builds a Docker image on the publisher host, which
+  // takes several minutes even on a fast machine — much longer than the
+  // managed providers this client-side publish-status polling was tuned for.
+  SELF_HOSTED_PUBLISHER_CONFIGURED:
+    rawEnv.SELF_HOSTED_PUBLISHER_URL !== undefined,
 };
 
 // Reject default OAuth secrets in production.

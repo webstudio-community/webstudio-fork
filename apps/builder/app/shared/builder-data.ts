@@ -30,6 +30,7 @@ export type LoadedBuilderData = BuilderData &
     | "version"
     | "publisherHost"
     | "publisherHostConfigured"
+    | "selfHostedPublisherConfigured"
     | "secureCookie"
     | "projectId"
   >;
@@ -84,6 +85,7 @@ export const loadBuilderData = async ({
       project: data.project,
       publisherHost: data.publisherHost,
       publisherHostConfigured: data.publisherHostConfigured,
+      selfHostedPublisherConfigured: data.selfHostedPublisherConfigured,
       secureCookie: data.secureCookie,
       assets: hydrateIdMap(data.assets),
       assetFolders: hydrateIdMap(data.assetFolders),
