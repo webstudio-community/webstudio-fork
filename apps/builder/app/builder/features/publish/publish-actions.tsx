@@ -44,6 +44,7 @@ export const PublishActions = ({
   publishInProgress,
   publishPending,
   hasSelectedDomains,
+  disabledReason,
   publishLabel,
   publishButtonRef,
   onValidate,
@@ -55,6 +56,8 @@ export const PublishActions = ({
   publishInProgress: boolean;
   publishPending: boolean;
   hasSelectedDomains: boolean;
+  /** Overrides the default "select a domain" tooltip reason when set. */
+  disabledReason?: string;
   publishLabel: string;
   publishButtonRef: Ref<HTMLButtonElement>;
   onValidate: () => Promise<void>;
@@ -88,9 +91,10 @@ export const PublishActions = ({
         content={
           publishInProgress
             ? "Publish process in progress"
-            : hasSelectedDomains
-              ? undefined
-              : "Select at least one domain to publish"
+            : (disabledReason ??
+              (hasSelectedDomains
+                ? undefined
+                : "Select at least one domain to publish"))
         }
       >
         <Button

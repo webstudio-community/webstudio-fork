@@ -247,10 +247,14 @@ const createPublishedDeployment = ({
   project,
   domains,
   target,
+  renderMode,
+  host,
 }: {
   project: LoadedProject;
   domains: string[];
   target: PublishTarget;
+  renderMode?: "ssg" | "ssr";
+  host?: "local" | "cloudflare" | "coolify" | "ssh";
 }): Deployment => ({
   destination: publishedDeploymentDestination,
   target,
@@ -259,6 +263,8 @@ const createPublishedDeployment = ({
   excludeWstdDomainFromSearch: project.domainsVirtual.some(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ),
+  renderMode,
+  host,
 });
 
 export const publishProject = async (
@@ -266,10 +272,23 @@ export const publishProject = async (
     project,
     domains,
     target,
+    renderMode,
+    host,
+    coolifyWebhookUrl,
+    coolifyWebhookToken,
   }: {
     project: LoadedProject;
     domains: string[];
     target: PublishTarget;
+    /**
+     * Self-hosting publish target, forwarded to the publisher service.
+     * When omitted, the deployment schema defaults apply.
+     */
+    renderMode?: "ssg" | "ssr";
+    host?: "local" | "cloudflare" | "coolify" | "ssh";
+    /** host: "coolify" — the target app's deploy webhook, forwarded, not stored. */
+    coolifyWebhookUrl?: string;
+    coolifyWebhookToken?: string;
   },
   context: AppContext
 ) => {
@@ -280,6 +299,8 @@ export const publishProject = async (
         project,
         domains,
         target,
+        renderMode,
+        host,
       }),
     },
     context
@@ -298,6 +319,10 @@ export const publishProject = async (
       buildId: build.id,
       branchName: env.GITHUB_REF_NAME,
       destination: publishedDeploymentDestination,
+      renderMode,
+      host,
+      coolifyWebhookUrl,
+      coolifyWebhookToken,
       logProjectName: `${project.title} - ${project.id}`,
     });
   } catch (error) {
