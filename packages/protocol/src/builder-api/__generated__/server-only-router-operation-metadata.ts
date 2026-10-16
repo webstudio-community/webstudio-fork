@@ -1666,6 +1666,20 @@ export const serverOnlyRouterOperationMetadata = {
         idempotencyKey: {
           type: "string",
         },
+        renderMode: {
+          type: "string",
+          enum: ["ssg", "ssr"],
+        },
+        host: {
+          type: "string",
+          enum: ["local", "cloudflare", "coolify", "ssh"],
+        },
+        coolifyWebhookUrl: {
+          type: "string",
+        },
+        coolifyWebhookToken: {
+          type: "string",
+        },
       },
       required: ["target"],
     },

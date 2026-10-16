@@ -37,7 +37,10 @@ import {
 import { Entri } from "./entri";
 import { nativeClient } from "~/shared/trpc/trpc-client";
 import { useStore } from "@nanostores/react";
-import { $publisherHost } from "~/shared/sync/data-stores";
+import {
+  $publisherHost,
+  $selfHostedPublisherConfigured,
+} from "~/shared/sync/data-stores";
 import { extractCname } from "./cname";
 import { useEffectEvent } from "~/shared/hook-utils/effect-event";
 import { DomainCheckbox } from "./domain-checkbox";
@@ -45,6 +48,7 @@ import { CopyToClipboard } from "~/shared/copy-to-clipboard";
 import { RelativeTime } from "~/builder/shared/relative-time";
 import { $currentSystem } from "~/shared/system";
 import { getPublishUrl } from "./publish-url";
+import type { PublishHost } from "./publish-target";
 
 export type Domain = Project["domainsVirtual"][number];
 
@@ -64,6 +68,19 @@ export const getStatus = (projectDomain: Domain) =>
 export const PENDING_TIMEOUT =
   process.env.NODE_ENV === "production" ? 60 * 3 * 1000 : 35000;
 
+// A self-hosted publish builds a Docker image on the publisher host (SSR) or
+// copies static files (SSG) — the Docker build alone routinely takes 3-4
+// minutes, every time (no meaningful layer cache across publishes of the
+// same project), well past PENDING_TIMEOUT. Give self-hosted publishes more
+// room before the client gives up and reports a failure that hasn't happened.
+const SELF_HOSTED_PENDING_TIMEOUT =
+  process.env.NODE_ENV === "production" ? 60 * 8 * 1000 : 35000;
+
+export const getPendingTimeout = () =>
+  $selfHostedPublisherConfigured.get()
+    ? SELF_HOSTED_PENDING_TIMEOUT
+    : PENDING_TIMEOUT;
+
 export const getPublishStatusAndText = ({
   createdAt,
   publishStatus,
@@ -74,9 +91,9 @@ export const getPublishStatusAndText = ({
   let status = publishStatus;
 
   const delta = Date.now() - new Date(createdAt).getTime();
-  // Assume build failed after 3 minutes
+  // Assume build failed once the (self-hosting-aware) pending timeout elapses
 
-  if (publishStatus === "PENDING" && delta > PENDING_TIMEOUT) {
+  if (publishStatus === "PENDING" && delta > getPendingTimeout()) {
     status = "FAILED";
   }
 
@@ -109,9 +126,40 @@ export const getPublishStatusAndText = ({
   return { statusText, status, color, Icon };
 };
 
+/**
+ * Mirrors webstudio-publisher's toCfProjectName (server.mjs) so the CNAME
+ * instructions shown here match the Cloudflare Pages project the publisher
+ * will actually create. CF Pages project names must be
+ * [a-z0-9][a-z0-9-]*[a-z0-9] and ≤ 58 chars.
+ */
+const toCfProjectName = (domain: string) =>
+  domain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 58);
+
+/**
+ * True when this domain was last successfully published to a different host
+ * than the one about to be used. Its DNS record was set up (or last confirmed
+ * working) for the previous host — this self-host instance, a Cloudflare Pages
+ * project, a Coolify app, a remote server — and publishing now won't fix that:
+ * DNS is the user's to update, the publisher only changes the destination.
+ * `renderMode` is intentionally ignored — it never changes a domain's DNS.
+ */
+const getDnsMayBeStale = (projectDomain: Domain, host: PublishHost) => {
+  const lastHost = projectDomain.latestBuildVirtual?.host;
+  return (
+    projectDomain.latestBuildVirtual?.publishStatus === "PUBLISHED" &&
+    lastHost != null &&
+    lastHost !== host
+  );
+};
+
 const getStatusText = (props: {
   projectDomain: Domain;
   isLoading: boolean;
+  host: PublishHost;
 }) => {
   const status = getStatus(props.projectDomain);
 
@@ -156,18 +204,40 @@ const getStatusText = (props: {
       break;
   }
 
+  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.host);
+  if (dnsMayBeStale) {
+    text = (
+      <>
+        {text}
+        <br />
+        <br />
+        The publishing destination has changed: the DNS record for this domain
+        may still point to its previous host. Please remember to update the
+        CNAME.
+      </>
+    );
+  }
+
   return {
-    color: props.isLoading ? cssVar("--foreground-secondary") : color,
+    color: props.isLoading
+      ? cssVar("--foreground-secondary")
+      : dnsMayBeStale
+        ? cssVar("--foreground-warning")
+        : color,
     Icon,
     text: props.isLoading ? "Loading status..." : text,
   };
 };
 
-const StatusIcon = (props: { projectDomain: Domain; isLoading: boolean }) => {
+const StatusIcon = (props: {
+  projectDomain: Domain;
+  isLoading: boolean;
+  host: PublishHost;
+}) => {
   const { color, Icon, text } = getStatusText(props);
 
   return (
-    <Tooltip content={text}>
+    <Tooltip content={text} variant="wrapped">
       <Flex
         align="center"
         justify="center"
@@ -189,11 +259,13 @@ const DomainItem = ({
   projectDomain,
   project,
   refresh,
+  host,
 }: {
   initiallyOpen: boolean;
   projectDomain: Domain;
   project: Project;
   refresh: () => Promise<void>;
+  host: PublishHost;
 }) => {
   const timeSinceLastUpdateMs =
     Date.now() - new Date(projectDomain.updatedAt).getTime();
@@ -321,6 +393,7 @@ const DomainItem = ({
   const { color, text } = getStatusText({
     projectDomain,
     isLoading: false,
+    host,
   });
 
   const publisherHost = useStore($publisherHost);
@@ -331,6 +404,15 @@ const DomainItem = ({
   });
   const cname = extractCname(projectDomain.domain);
   const isApexDomain = cname === "@";
+
+  // Cloudflare Pages serves from its own project, not this self-host
+  // instance — the CNAME target is the Pages project, not
+  // `customers.${publisherHost}`. See toCfProjectName above: this is what
+  // webstudio-publisher will actually create/deploy to.
+  const cnameTarget =
+    host === "cloudflare"
+      ? `${toCfProjectName(project.domain)}.pages.dev`
+      : `${projectDomain.cname}.customers.${publisherHost}`;
 
   // Records for the Entri automatic DNS setup widget.
   // Entri only supports CNAME / ALIAS / TXT — A records are not included.
@@ -347,7 +429,7 @@ const DomainItem = ({
         {
           type: "CNAME" as const,
           host: cname,
-          value: `${projectDomain.cname}.customers.${publisherHost}`,
+          value: cnameTarget,
           ttl: 300,
         },
         {
@@ -399,6 +481,7 @@ const DomainItem = ({
           <StatusIcon
             isLoading={isStatusLoading}
             projectDomain={projectDomain}
+            host={host}
           />
 
           <CopyToClipboard
@@ -613,6 +696,7 @@ type DomainsProps = {
   domains: Domain[];
   refresh: () => Promise<void>;
   project: Project;
+  host: PublishHost;
 };
 
 export const Domains = ({
@@ -620,6 +704,7 @@ export const Domains = ({
   domains,
   refresh,
   project,
+  host,
 }: DomainsProps) => {
   return (
     <>
@@ -630,6 +715,7 @@ export const Domains = ({
           initiallyOpen={newDomains.has(projectDomain.domain)}
           refresh={refresh}
           project={project}
+          host={host}
         />
       ))}
     </>
