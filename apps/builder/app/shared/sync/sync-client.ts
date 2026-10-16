@@ -29,6 +29,8 @@ import {
   $marketplaceProduct,
   $projectSettings,
   $publisherHost,
+  $publisherHostConfigured,
+  $secureCookie,
   resetDataStores,
 } from "./data-stores";
 import {
@@ -95,6 +97,8 @@ const applyBuilderData = (data: LoadedBuilderData) => {
 
 const applyBuilderMetadata = (data: LoadedBuilderData) => {
   $publisherHost.set(data.publisherHost);
+  $publisherHostConfigured.set(data.publisherHostConfigured);
+  $secureCookie.set(data.secureCookie);
   $project.set(data.project);
 };
 
