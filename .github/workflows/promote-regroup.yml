@@ -15,6 +15,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  notify-ci-failed:
+    name: Report red CI on a sync/rebase branch
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'sync/rebase-')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Send report
+        env:
+          MAIL_WEBHOOK_URL: ${{ secrets.SYNC_MAIL_WEBHOOK_URL }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CI_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          REPORT=$(printf 'Date: %s\nRepo: %s\nStatus: Manual review needed\n\nCI is red on %s: develop was NOT updated.\nFailed run: %s\n' \
+            "$(date +%F)" "$GITHUB_REPOSITORY" "$BRANCH" "$CI_URL")
+          jq -n \
+            --arg objet "[webstudio-fork] Sync upstream - CI red - $(date +%F)" \
+            --arg message "$(printf '%s' "$REPORT" | sed 's/$/<br>/')" \
+            '{objet: $objet, nom: "webstudio-sync-bot", email: "webstudio-sync-bot", message: $message}' \
+            | curl -fsS -X POST "$MAIL_WEBHOOK_URL" -H "Content-Type: application/json" -d @-
+
   promote:
     name: Promote regroup branch to develop
     if: >-
@@ -31,6 +53,7 @@ jobs:
       GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
       BRANCH: ${{ github.event.workflow_run.head_branch }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,17 +61,20 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Promote
+        id: promote
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin develop "$BRANCH"
 
           if [ "$(git rev-parse "origin/$BRANCH")" != "$HEAD_SHA" ]; then
+            echo "RESULT=branch-moved" >> "$GITHUB_ENV"
             echo "Branch moved since CI ran, not promoting."; exit 0
           fi
 
           PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
-          [ -n "$PR" ] || { echo "No open PR for $BRANCH"; exit 0; }
+          [ -n "$PR" ] || { echo "RESULT=no-pr" >> "$GITHUB_ENV"; echo "No open PR for $BRANCH"; exit 0; }
+          echo "PR=$PR" >> "$GITHUB_ENV"
           EXPECTED=$(gh pr view "$PR" --json body --jq .body \
             | sed -n 's/^Expected-Develop: *\([0-9a-f]\{40\}\).*/\1/p' | head -1)
           [ -n "$EXPECTED" ] || { echo "PR #$PR has no Expected-Develop line."; exit 1; }
@@ -59,7 +85,9 @@ jobs:
 
           # --force-with-lease pinned to the sha the regroup started from:
           # fails if develop moved (a PR merged meanwhile), humans decide then.
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           git push --force-with-lease=develop:"$EXPECTED" origin "$HEAD_SHA":refs/heads/develop
+          echo "RESULT=promoted" >> "$GITHUB_ENV"
 
           gh pr close "$PR" --delete-branch \
             --comment "CI green: develop promoted to $HEAD_SHA. Backup tag: $TAG."
@@ -73,3 +101,30 @@ jobs:
                 "Resolved by $BRANCH (PR #$PR): CI green, develop promoted to $HEAD_SHA. Backup tag: $TAG."
             done ;;
           esac
+
+      # The sync routine no longer mails when it opens its PR: the single
+      # report goes out here, once the outcome is known (promoted or not).
+      - name: Send final sync report
+        if: always() && startsWith(env.BRANCH, 'sync/rebase-')
+        env:
+          MAIL_WEBHOOK_URL: ${{ secrets.SYNC_MAIL_WEBHOOK_URL }}
+          PROMOTE_OUTCOME: ${{ steps.promote.outcome }}
+        run: |
+          case "${RESULT:-}" in
+            promoted) STATUS="Fixed and promoted"
+              DETAIL="develop now points to $HEAD_SHA. Backup tag: ${TAG:-n/a}. Open sync-conflict issues closed." ;;
+            branch-moved) STATUS="Manual review needed"
+              DETAIL="CI is green but $BRANCH moved after it ran: develop was NOT updated." ;;
+            no-pr) STATUS="Manual review needed"
+              DETAIL="CI is green but no open PR exists for $BRANCH: develop was NOT updated." ;;
+            *) STATUS="Failed"
+              DETAIL="CI is green but the promotion step failed (outcome: $PROMOTE_OUTCOME): develop was NOT updated. See $RUN_URL" ;;
+          esac
+          BODY=$(gh pr view "${PR:-0}" --json body --jq .body 2>/dev/null | sed '/^Expected-Develop:/d' || true)
+          REPORT=$(printf 'Date: %s\nRepo: %s\nStatus: %s\n\n%s\nBranch: %s (PR #%s)\n\n--- ROUTINE REPORT (PR description) ---\n%s\n' \
+            "$(date +%F)" "$GITHUB_REPOSITORY" "$STATUS" "$DETAIL" "$BRANCH" "${PR:-?}" "$BODY")
+          jq -n \
+            --arg objet "[webstudio-fork] Sync upstream - $STATUS - $(date +%F)" \
+            --arg message "$(printf '%s' "$REPORT" | sed 's/$/<br>/')" \
+            '{objet: $objet, nom: "webstudio-sync-bot", email: "webstudio-sync-bot", message: $message}' \
+            | curl -fsS -X POST "$MAIL_WEBHOOK_URL" -H "Content-Type: application/json" -d @-
