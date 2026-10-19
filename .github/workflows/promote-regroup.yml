@@ -1,9 +1,10 @@
 name: Promote regroup
 
-# The regroup routine pushes regroup/<yyyymm> and opens a PR to main so the
-# regular CI runs on the regrouped patch series. When "Main workflow" is green
-# on that exact commit, develop is moved to it (after a backup tag), provided
-# develop is still where the routine started from.
+# The regroup routine pushes regroup/<yyyymm>, and the sync routine pushes
+# sync/rebase-<yyyymmdd> after resolving a failed upstream rebase. Each opens
+# a PR to main so the regular CI runs on the rewritten patch series. When
+# "Main workflow" is green on that exact commit, develop is moved to it (after
+# a backup tag), provided develop is still where the routine started from.
 on:
   workflow_run:
     workflows: ["Main workflow"]
@@ -19,11 +20,13 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
-      startsWith(github.event.workflow_run.head_branch, 'regroup/')
+      (startsWith(github.event.workflow_run.head_branch, 'regroup/') ||
+       startsWith(github.event.workflow_run.head_branch, 'sync/rebase-'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     env:
       GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
       BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -60,3 +63,13 @@ jobs:
 
           gh pr close "$PR" --delete-branch \
             --comment "CI green: develop promoted to $HEAD_SHA. Backup tag: $TAG."
+
+          # A promoted sync/rebase-* branch resolves the open sync-conflict
+          # issues (the failed scheduled rebase that triggered the routine).
+          case "$BRANCH" in sync/rebase-*)
+            for n in $(gh issue list --label sync-conflict --state open \
+                --json number --jq '.[].number'); do
+              gh issue close "$n" --comment \
+                "Resolved by $BRANCH (PR #$PR): CI green, develop promoted to $HEAD_SHA. Backup tag: $TAG."
+            done ;;
+          esac
