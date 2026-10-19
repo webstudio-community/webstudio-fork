@@ -1164,11 +1164,13 @@ export const publishCommandOptions = (yargs: CommonYargsArgv) =>
   publishBaseCommandOptions(yargs)
     .option("render-mode", {
       choices: ["ssg", "ssr"] as const,
-      describe: "Self-hosted render mode (default: ssg)",
+      describe:
+        "Optional render mode of the self-hosted publish. Defaults to the publisher default (ssg)",
     })
     .option("host", {
       choices: ["local", "cloudflare", "coolify", "ssh"] as const,
-      describe: "Self-hosted publish host (default: local)",
+      describe:
+        "Optional self-hosting publish host. Defaults to the publisher default (local)",
     });
 
 export const validatePublishCommandOptions = (yargs: CommonYargsArgv) =>
