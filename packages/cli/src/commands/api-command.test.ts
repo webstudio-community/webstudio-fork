@@ -1869,6 +1869,8 @@ test("publishes project", async () => {
       domain: ["example.com,www.example.com"],
       message: "Ship",
       idempotencyKey: "publish-key",
+      renderMode: "ssr",
+      host: "coolify",
     },
     call: apiCalls.publish,
     connection: {
@@ -1876,6 +1878,8 @@ test("publishes project", async () => {
       domains: ["example.com", "www.example.com"],
       message: "Ship",
       idempotencyKey: "publish-key",
+      renderMode: "ssr",
+      host: "coolify",
     },
   });
 });

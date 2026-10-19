@@ -2347,6 +2347,8 @@ export const publish = projectMutationInput<
     domains?: string[];
     message?: string;
     idempotencyKey?: string;
+    renderMode?: "ssg" | "ssr";
+    host?: "local" | "cloudflare" | "coolify" | "ssh";
   }
 >("publish");
 
