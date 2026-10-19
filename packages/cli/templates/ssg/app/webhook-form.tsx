@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import type { ResourceRequest } from "@webstudio-is/sdk";
+import { navigationFormActionUrl } from "@webstudio-is/sdk/form";
 import { loadResource } from "@webstudio-is/sdk/runtime";
 
 /**
@@ -40,7 +41,7 @@ type Props = Omit<ComponentProps<"form">, "action"> & {
 
 export const Form = forwardRef<ElementRef<"form">, Props>(
   (
-    { children, action, state = "initial", onStateChange, onSubmit, ...props },
+    { children, action, state, onStateChange, onSubmit, ...props },
     ref
   ) => {
     const actionResources = useContext(ActionResourcesContext);
@@ -66,7 +67,18 @@ export const Form = forwardRef<ElementRef<"form">, Props>(
     };
 
     return (
-      <form {...props} data-state={state} onSubmit={handleSubmit} ref={ref}>
+      <form
+        {...props}
+        // No resource configured: this is the canonical navigation Form,
+        // matching @webstudio-is/sdk-components-react's resource-form —
+        // a native GET submission needs no JS, so it works unmodified in SSG.
+        {...(resource === undefined
+          ? { action: navigationFormActionUrl, method: "get" as const }
+          : undefined)}
+        data-state={state === undefined || state === "initial" ? undefined : state}
+        onSubmit={handleSubmit}
+        ref={ref}
+      >
         {children}
       </form>
     );
