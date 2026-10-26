@@ -1,0 +1,74 @@
+name: Approve routine
+
+# Mails of the webstudio-issues-weekly routine carry a button that opens a
+# prefilled issue on this repo (the hub for all three webstudio-community
+# repos). Submitting it validates what the routine asked for:
+#   title "approve-pr <repo>#<n>", body "sha:<head>"  -> merge the PR
+#   title "approve-plan <repo>#<n>"                    -> start the L issue plan
+# The workflow only checks and fires the routine in "finalize" mode; the
+# routine does the work and mails the outcome. The sha pins the reviewed commit.
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  approve:
+    name: Fire the issues routine to finalize an approval
+    if: contains(github.event.issue.labels.*.name, 'routine-approval')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE: ${{ github.event.issue.number }}
+      TITLE: ${{ github.event.issue.title }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ACTOR: ${{ github.event.issue.user.login }}
+      ORG: webstudio-community
+    steps:
+      - name: Check and fire
+        env:
+          ROUTINE_FIRE_URL: ${{ secrets.ISSUES_ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ISSUES_ROUTINE_FIRE_TOKEN }}
+        run: |
+          refuse() {
+            gh issue comment "$ISSUE" --body "Not approved: $1"
+            gh issue close "$ISSUE" --reason "not planned"
+            echo "$1"; exit 1
+          }
+
+          PERM=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq .permission)
+          [ "$PERM" = admin ] || refuse "$ACTOR is not a repository admin."
+
+          KIND=$(printf '%s' "$TITLE" | sed -n 's/^approve-\(pr\|plan\) [a-z-]*#[0-9]\{1,\}$/\1/p')
+          REPO=$(printf '%s' "$TITLE" | sed -n 's/^approve-[a-z]* \([a-z-]*\)#[0-9]\{1,\}$/\1/p')
+          N=$(printf '%s' "$TITLE" | sed -n 's/^approve-[a-z]* [a-z-]*#\([0-9]\{1,\}\)$/\1/p')
+          [ -n "$KIND" ] && [ -n "$REPO" ] && [ -n "$N" ] \
+            || refuse "malformed title (expected 'approve-pr <repo>#<n>' or 'approve-plan <repo>#<n>')."
+          case "$REPO" in webstudio-fork|webstudio-publisher|webstudio-self-host) ;; *) refuse "unknown repo $REPO." ;; esac
+
+          if [ "$KIND" = pr ]; then
+            SHA=$(printf '%s' "$ISSUE_BODY" | sed -n 's/^sha:\([0-9a-f]\{40\}\).*/\1/p' | head -1)
+            [ -n "$SHA" ] || refuse "body must contain 'sha:<40 hex>'."
+            read -r STATE HEAD < <(gh api "repos/$ORG/$REPO/pulls/$N" --jq '[.state, .head.sha] | join(" ")')
+            [ "$STATE" = open ] || refuse "PR $REPO#$N is $STATE."
+            [ "$HEAD" = "$SHA" ] || refuse "PR $REPO#$N moved since the mail (head is now $HEAD, approved $SHA). Review it again."
+            TEXT="finalize pr $REPO#$N sha:$SHA (approved by $ACTOR)"
+          else
+            read -r STATE LABELS < <(gh api "repos/$ORG/$REPO/issues/$N" --jq '[.state, ([.labels[].name] | join(","))] | join(" ")')
+            [ "$STATE" = open ] || refuse "Issue $REPO#$N is $STATE."
+            case ",$LABELS," in *,needs-validation,*) ;; *) refuse "Issue $REPO#$N is not waiting for a plan validation." ;; esac
+            TEXT="finalize plan $REPO#$N (approved by $ACTOR)"
+          fi
+
+          curl -fsS -X POST "$ROUTINE_FIRE_URL" \
+            -H "Authorization: Bearer $ROUTINE_FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg text "$TEXT" '{text: $text}')"
+
+          gh issue comment "$ISSUE" --body "Approved by $ACTOR. Routine fired: \`$TEXT\`. It does the work and mails the outcome."
+          gh issue close "$ISSUE" --reason completed
