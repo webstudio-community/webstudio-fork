@@ -5,15 +5,10 @@ name: Promote regroup
 # a PR to main so the regular CI runs on the rewritten patch series. When
 # "Main workflow" is green on that exact commit, develop is moved to it (after
 # a backup tag), provided develop is still where the routine started from.
-# A maintainer can also approve a sync/rebase-* PR by hand (button in the sync
-# mail -> approve-sync.yml -> routine labels the PR "approved"): the same
-# promotion then runs without waiting for a green CI.
 on:
   workflow_run:
     workflows: ["Main workflow"]
     types: [completed]
-  pull_request:
-    types: [labeled]
 
 concurrency:
   group: promote-regroup
@@ -23,15 +18,10 @@ jobs:
   promote:
     name: Promote regroup branch to develop
     if: >-
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'pull_request' &&
-       (startsWith(github.event.workflow_run.head_branch, 'regroup/') ||
-        startsWith(github.event.workflow_run.head_branch, 'sync/rebase-'))) ||
-      (github.event_name == 'pull_request' &&
-       github.event.label.name == 'approved' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       startsWith(github.event.pull_request.head.ref, 'sync/rebase-'))
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      (startsWith(github.event.workflow_run.head_branch, 'regroup/') ||
+       startsWith(github.event.workflow_run.head_branch, 'sync/rebase-'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -39,8 +29,8 @@ jobs:
       issues: write
     env:
       GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
-      BRANCH: ${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref }}
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -92,38 +82,25 @@ jobs:
 
       # The sync routine no longer mails when it opens its PR: the single
       # report goes out here, once the outcome is known (promoted or not).
-      # After a manual approval the routine sends its own report, so this
-      # step only speaks up when the promotion did not happen.
       - name: Send final sync report
         if: always() && startsWith(env.BRANCH, 'sync/rebase-')
         env:
           MAIL_WEBHOOK_URL: ${{ secrets.SYNC_MAIL_WEBHOOK_URL }}
           PROMOTE_OUTCOME: ${{ steps.promote.outcome }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "${RESULT:-}" = promoted ]; then
-            echo "Approved promotion done, the routine sends the report."; exit 0
-          fi
           case "${RESULT:-}" in
             promoted) STATUS="Fixed and promoted"
               DETAIL="develop now points to $HEAD_SHA. Backup tag: ${TAG:-n/a}. Open sync-conflict issues closed." ;;
             branch-moved) STATUS="Manual review needed"
-              DETAIL="Promotion was requested but $BRANCH moved after the check: develop was NOT updated." ;;
+              DETAIL="CI is green but $BRANCH moved after it ran: develop was NOT updated." ;;
             no-pr) STATUS="Manual review needed"
-              DETAIL="Promotion was requested but no open PR exists for $BRANCH: develop was NOT updated." ;;
+              DETAIL="CI is green but no open PR exists for $BRANCH: develop was NOT updated." ;;
             *) STATUS="Failed"
-              DETAIL="Promotion was requested but the step failed (outcome: $PROMOTE_OUTCOME): develop was NOT updated. See $RUN_URL" ;;
+              DETAIL="CI is green but the promotion step failed (outcome: $PROMOTE_OUTCOME): develop was NOT updated. See $RUN_URL" ;;
           esac
-          # Not promoted: the maintainer can approve from the mail (one tap on
-          # the prefilled issue, handled by approve-sync.yml).
-          ACTION=""
-          if [ "${RESULT:-}" != promoted ] && [ -n "${PR:-}" ]; then
-            APPROVE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/issues/new?labels=sync-approval&title=approve-sync+PR+$PR&body=sha:$HEAD_SHA"
-            ACTION=$(printf '\n>>> TO VALIDATE AND PROMOTE develop NOW: <a href="%s">Validate and promote</a>\n(or open the PR and decide: %s/%s/pull/%s)\n' \
-              "$APPROVE_URL" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$PR")
-          fi
           BODY=$(gh pr view "${PR:-0}" --json body --jq .body 2>/dev/null | sed '/^Expected-Develop:/d' || true)
-          REPORT=$(printf 'Date: %s\nRepo: %s\nStatus: %s\n\n%s\nBranch: %s (PR #%s)\n%s\n--- ROUTINE REPORT (PR description) ---\n%s\n' \
-            "$(date +%F)" "$GITHUB_REPOSITORY" "$STATUS" "$DETAIL" "$BRANCH" "${PR:-?}" "$ACTION" "$BODY")
+          REPORT=$(printf 'Date: %s\nRepo: %s\nStatus: %s\n\n%s\nBranch: %s (PR #%s)\n\n--- ROUTINE REPORT (PR description) ---\n%s\n' \
+            "$(date +%F)" "$GITHUB_REPOSITORY" "$STATUS" "$DETAIL" "$BRANCH" "${PR:-?}" "$BODY")
           jq -n \
             --arg objet "[webstudio-fork] Sync upstream - $STATUS - $(date +%F)" \
             --arg message "$(printf '%s' "$REPORT" | sed 's/$/<br>/')" \
