@@ -104,8 +104,8 @@ export const createFramework = async (
   // the published @webstudio-is/sdk-components-react (upstream's plain
   // server-submit <form>). Every generated component module lives in
   // app/__generated__/, so a fixed "../webhook-form" specifier resolves.
-  if (components.Form !== undefined) {
-    components.Form = "../webhook-form:Form";
+  if (components.ResourceForm !== undefined) {
+    components.ResourceForm = "../webhook-form:Form";
   }
 
   return {
