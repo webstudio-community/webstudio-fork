@@ -1984,7 +1984,9 @@ const Content = (props: {
                 refresh={refreshProject}
                 projectState={projectState}
                 project={project}
-                validatedDomains={props.progress.manualValidationFindings.domains}
+                validatedDomains={
+                  props.progress.manualValidationFindings.domains
+                }
               />
             ) : (
               <PanelBanner variant="warning">
