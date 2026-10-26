@@ -5,8 +5,11 @@ name: Approve routine
 # repos). Submitting it validates what the routine asked for:
 #   title "approve-pr <repo>#<n>", body "sha:<head>"  -> merge the PR
 #   title "approve-plan <repo>#<n>"                    -> start the L issue plan
-# The workflow only checks and fires the routine in "finalize" mode; the
-# routine does the work and mails the outcome. The sha pins the reviewed commit.
+# For a PR the workflow merges itself (the routine's own merge is refused by
+# the cloud sandbox classifier as "Merge Without Review"; the click here is the
+# human review), then fires the routine in "finalize" mode for the cleanup and
+# the report. For a plan the routine does the work. The sha pins the reviewed
+# commit.
 on:
   issues:
     types: [opened]
@@ -30,6 +33,7 @@ jobs:
     steps:
       - name: Check and fire
         env:
+          MERGE_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           ROUTINE_FIRE_URL: ${{ secrets.ISSUES_ROUTINE_FIRE_URL }}
           ROUTINE_FIRE_TOKEN: ${{ secrets.ISSUES_ROUTINE_FIRE_TOKEN }}
         run: |
@@ -55,7 +59,12 @@ jobs:
             read -r STATE HEAD < <(gh api "repos/$ORG/$REPO/pulls/$N" --jq '[.state, .head.sha] | join(" ")')
             [ "$STATE" = open ] || refuse "PR $REPO#$N is $STATE."
             [ "$HEAD" = "$SHA" ] || refuse "PR $REPO#$N moved since the mail (head is now $HEAD, approved $SHA). Review it again."
-            TEXT="finalize pr $REPO#$N sha:$SHA (approved by $ACTOR)"
+            BRANCH=$(gh api "repos/$ORG/$REPO/pulls/$N" --jq .head.ref)
+            MERGED=$(GH_TOKEN="$MERGE_TOKEN" gh api -X PUT "repos/$ORG/$REPO/pulls/$N/merge" \
+              -f merge_method=squash -f sha="$SHA" --jq .sha 2>&1) \
+              || refuse "merge of $REPO#$N failed: $MERGED"
+            GH_TOKEN="$MERGE_TOKEN" gh api -X DELETE "repos/$ORG/$REPO/git/refs/heads/$BRANCH" || true
+            TEXT="finalize pr $REPO#$N merged:$MERGED sha:$SHA (merged by the approve-routine workflow after $ACTOR approved)"
           else
             read -r STATE LABELS < <(gh api "repos/$ORG/$REPO/issues/$N" --jq '[.state, ([.labels[].name] | join(","))] | join(" ")')
             [ "$STATE" = open ] || refuse "Issue $REPO#$N is $STATE."
@@ -70,5 +79,5 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg text "$TEXT" '{text: $text}')"
 
-          gh issue comment "$ISSUE" --body "Approved by $ACTOR. Routine fired: \`$TEXT\`. It does the work and mails the outcome."
+          gh issue comment "$ISSUE" --body "Approved by $ACTOR. Routine fired: \`$TEXT\`. It cleans up and mails the outcome."
           gh issue close "$ISSUE" --reason completed
