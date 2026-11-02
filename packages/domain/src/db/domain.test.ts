@@ -20,6 +20,9 @@ const createContext = (overrides: Partial<AppContext> = {}): AppContext =>
     domain: {},
     deployment: {
       deploymentTrpc: {
+        capabilities: {
+          query: () => Promise.resolve({ cloudflare: false }),
+        },
         unpublish: {
           mutate: () => Promise.resolve({ success: true }),
         },
@@ -29,6 +32,7 @@ const createContext = (overrides: Partial<AppContext> = {}): AppContext =>
         GITHUB_REF_NAME: "main",
         GITHUB_SHA: undefined,
         PUBLISHER_HOST: "wstd.io",
+        TRPC_SERVER_URL: undefined,
       },
     },
     entri: {},
@@ -326,7 +330,12 @@ describe("updateStatus (msw)", () => {
     server.use(
       projectHandler,
       db.get("ProjectDomain", () =>
-        json([{ domain: { id: "domain-id-1", domain: "example.com" } }])
+        json([
+          {
+            domain: { id: "domain-id-1", domain: "example.com" },
+            txtRecord: "txt-1",
+          },
+        ])
       ),
       db.patch("Domain", () =>
         json({ id: "domain-id-1", domain: "example.com", status: "ACTIVE" })
@@ -338,13 +347,10 @@ describe("updateStatus (msw)", () => {
       createContext({
         domain: {
           domainTrpc: {
-            getStatus: {
-              query: () => {
+            create: {
+              mutate: () => {
                 checked = true;
-                return Promise.resolve({
-                  success: true,
-                  data: { status: "active" },
-                });
+                return Promise.resolve({ success: true });
               },
             },
           },
