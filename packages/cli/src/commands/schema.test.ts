@@ -159,15 +159,16 @@ test("prints compact mcp tool summaries as json by default", () => {
     })
   );
   // Publish validation and execution occupy about 1.5k characters; keep the old
-  // budget for all other tools and a tight overall handshake budget.
-  expect(JSON.stringify(handshakePayload).length).toBeLessThan(226_000);
+  // budget for all other tools and a tight overall handshake budget, plus the
+  // fork's publish target fields.
+  expect(JSON.stringify(handshakePayload).length).toBeLessThan(226_500);
   expect(
     JSON.stringify(
       handshakePayload.filter(
         ({ name }) => name !== "validate-publish" && name !== "get-publish-log"
       )
     ).length
-  ).toBeLessThan(224_500);
+  ).toBeLessThan(225_000);
   const screenshotTool = expectedTools.find(
     ({ name }) => name === "screenshot"
   );

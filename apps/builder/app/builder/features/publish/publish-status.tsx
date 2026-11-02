@@ -2,9 +2,18 @@ import type { Project } from "@webstudio-is/project";
 import { cssVar } from "@webstudio-is/design-system";
 import { CheckCircleIcon, AlertIcon, SpinnerIcon } from "@webstudio-is/icons";
 import { RelativeTime } from "~/builder/shared/relative-time";
+import { $selfHostedPublisherConfigured } from "~/shared/sync/data-stores";
 
 export const PENDING_TIMEOUT =
   process.env.NODE_ENV === "production" ? 60 * 3 * 1000 : 35000;
+
+// A self-hosted SSR publish builds a Docker image (3-4 minutes, no layer cache),
+// well past PENDING_TIMEOUT.
+const SELF_HOSTED_PENDING_TIMEOUT =
+  process.env.NODE_ENV === "production" ? 60 * 8 * 1000 : 35000;
+
+export const getPendingTimeout = () =>
+  $selfHostedPublisherConfigured.get() ? SELF_HOSTED_PENDING_TIMEOUT : PENDING_TIMEOUT;
 
 export const getPublishStatusDisplay = ({
   createdAt,
@@ -16,9 +25,8 @@ export const getPublishStatusDisplay = ({
   let status = publishStatus;
 
   const delta = Date.now() - new Date(createdAt).getTime();
-  // Assume build failed after 3 minutes
 
-  if (publishStatus === "PENDING" && delta > PENDING_TIMEOUT) {
+  if (publishStatus === "PENDING" && delta > getPendingTimeout()) {
     status = "FAILED";
   }
 
@@ -61,9 +69,8 @@ export const getStaticPublishStatusDisplay = ({
   let status = publishStatus;
 
   const delta = Date.now() - new Date(updatedAt).getTime();
-  // Assume build failed after 3 minutes
 
-  if (publishStatus === "PENDING" && delta > PENDING_TIMEOUT) {
+  if (publishStatus === "PENDING" && delta > getPendingTimeout()) {
     status = "FAILED";
   }
 

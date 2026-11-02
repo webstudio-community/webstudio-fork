@@ -1,6 +1,29 @@
 import type { Client } from "@webstudio-is/postgrest/index.server";
+import { defaultPlanFeatures, type PlanFeatures } from "./plan-features";
 
 type PostgrestContext = { client: Client };
+
+/**
+ * Full feature set for self-hosted dev plans.
+ * Mirrors what a paid Stripe webhook would write into Product.meta on SaaS.
+ * All boolean flags enabled, numeric limits set to generous self-host defaults.
+ */
+const devPlanMeta: PlanFeatures = {
+  ...defaultPlanFeatures,
+  canDownloadAssets: true,
+  canRestoreBackups: true,
+  allowAdditionalPermissions: true,
+  allowDynamicData: true,
+  allowContentMode: true,
+  allowStagingPublish: true,
+  maxContactEmailsPerProject: 1000,
+  maxDomainsAllowedPerUser: 1000,
+  maxDailyPublishesPerUser: 1000,
+  maxWorkspaces: 100,
+  maxProjectsAllowedPerUser: 1000,
+  maxAssetsPerProject: 10000,
+  maxSeatsPerWorkspace: 100,
+};
 
 /**
  * Upsert or delete dev plan rows in the DB for the given user email.
@@ -41,7 +64,8 @@ export const applyDevPlan = async (
     const productResult = await postgrest.client.from("Product").upsert({
       id: productId,
       name: planName,
-      meta: {},
+      // Lets getPlanInfo work without the PLANS env var.
+      meta: devPlanMeta,
       features: [],
       images: [],
     });

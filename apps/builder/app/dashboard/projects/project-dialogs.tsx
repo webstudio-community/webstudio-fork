@@ -290,10 +290,12 @@ const useDeleteProject = ({
   onOpenChange: (isOpen: boolean) => void;
   onHiddenChange: (isHidden: boolean) => void;
 }) => {
-  const { send, data, state } =
+  const { send, data, state, error } =
     trpcClient.dashboardProject.delete.useMutation();
   const [isMatch, setIsMatch] = useState(false);
-  const errors = data && "errors" in data ? data.errors : undefined;
+  // Both returned errors and a thrown error (unreachable publisher) must reopen
+  // the dialog, or the failed delete looks successful.
+  const errors = (data && "errors" in data ? data.errors : undefined) ?? error;
   const revalidator = useRevalidator();
 
   useEffect(() => {

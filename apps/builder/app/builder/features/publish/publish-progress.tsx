@@ -4,7 +4,7 @@ import { $project } from "~/shared/sync/data-stores";
 import { $publishDialog } from "~/builder/shared/nano-states";
 import { nativeClient } from "~/shared/trpc/trpc-client";
 import {
-  PENDING_TIMEOUT,
+  getPendingTimeout,
   getPublishStatusDisplay,
   getStaticPublishStatusDisplay,
 } from "./publish-status";
@@ -33,7 +33,7 @@ export const waitForPublishStatus = async (
     .getJob.query
 ) => {
   let sleepTime = 15000;
-  const timeToFinish = Date.now() + PENDING_TIMEOUT + 2 * sleepTime;
+  const timeToFinish = Date.now() + getPendingTimeout() + 2 * sleepTime;
 
   while (Date.now() < timeToFinish && isCurrentProject()) {
     let runnerSucceeded = false;

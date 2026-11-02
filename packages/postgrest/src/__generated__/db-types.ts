@@ -489,8 +489,10 @@ export type Database = {
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
+          host: string | null;
           projectId: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
+          renderMode: string | null;
           updatedAt: string;
         };
         Insert: {
@@ -498,8 +500,10 @@ export type Database = {
           createdAt: string;
           domain: string;
           domainsVirtualId: string;
+          host?: string | null;
           projectId: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
+          renderMode?: string | null;
           updatedAt?: string;
         };
         Update: {
@@ -507,8 +511,10 @@ export type Database = {
           createdAt?: string;
           domain?: string;
           domainsVirtualId?: string;
+          host?: string | null;
           projectId?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
+          renderMode?: string | null;
           updatedAt?: string;
         };
         Relationships: [
