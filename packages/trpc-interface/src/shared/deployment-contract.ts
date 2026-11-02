@@ -6,6 +6,14 @@ export const publishInput = z.object({
   builderOrigin: z.string(),
   githubSha: z.string().optional(),
   destination: z.enum(["saas", "static"]),
+  // Self-hosting publish target, two orthogonal axes forwarded to the publisher:
+  //   renderMode — "ssg" (static, default) | "ssr" (Node server)
+  //   host       — "local" (default) | "cloudflare" | "coolify" | "ssh"
+  renderMode: z.enum(["ssg", "ssr"]).default("ssg"),
+  host: z.enum(["local", "cloudflare", "coolify", "ssh"]).default("local"),
+  // host: "coolify" only — the target app's deploy webhook (per site, not stored)
+  coolifyWebhookUrl: z.string().optional(),
+  coolifyWebhookToken: z.string().optional(),
   branchName: z.string(),
   logProjectName: z.string(),
 });

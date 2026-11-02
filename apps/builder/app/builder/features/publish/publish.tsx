@@ -58,6 +58,7 @@ import {
 import { runPublishAfterBestEffortChecks } from "./publish-preflight";
 import { getPublishStatusDisplay } from "./publish-status";
 import { Content, ExportContent } from "./publish-ui";
+import type { PublishHost, RenderMode } from "./publish-target";
 
 type PublishProps = {
   projectId: Project["id"];
@@ -66,6 +67,119 @@ type PublishProps = {
 const COUNTDOWN_DURATION = 60_000;
 const PUBLISH_LOG_RETRY_DELAY = 5_000;
 const PUBLISH_LOG_MAX_ATTEMPTS = 12;
+
+const renderModeStorageKey = (projectId: string) =>
+  `publish:renderMode:${projectId}`;
+const hostStorageKey = (projectId: string) => `publish:host:${projectId}`;
+const coolifyWebhookStorageKey = (projectId: string) =>
+  `publish:coolifyWebhook:${projectId}`;
+const coolifyWebhookTokenStorageKey = (projectId: string) =>
+  `publish:coolifyWebhookToken:${projectId}`;
+
+const readStored = (key: string) => {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const writeStored = (key: string, value: string) => {
+  try {
+    if (value === "") {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // localStorage unavailable — in-memory state only
+  }
+};
+
+/**
+ * One-time seed from the pre-split `buildMode:<id>` key so a project keeps the
+ * destination it was last published to after the (renderMode, host) split.
+ */
+const seedFromLegacyBuildMode = (
+  projectId: string
+): { renderMode: RenderMode; host: PublishHost } | undefined => {
+  const legacy = localStorage.getItem(`buildMode:${projectId}`);
+  if (legacy === "ssg") {
+    return { renderMode: "ssg", host: "local" };
+  }
+  if (legacy === "ssr") {
+    return { renderMode: "ssr", host: "local" };
+  }
+  if (legacy === "cloudflare") {
+    return { renderMode: "ssg", host: "cloudflare" };
+  }
+  return undefined;
+};
+
+/**
+ * Self-hosting publish target selection, persisted per-project in localStorage.
+ * Two orthogonal axes:
+ *   renderMode — "ssg" (static) | "ssr" (Node server)
+ *   host       — "local" | "cloudflare" | "coolify" | "ssh"
+ * Lifted out of `Publish` so `Domains` can also read the selected host — it
+ * needs it to warn when a custom domain's DNS still targets the host that
+ * project was last actually published to.
+ */
+export const usePublishTarget = (projectId: string) => {
+  const [renderMode, setRenderModeState] = useState<RenderMode>(() => {
+    const stored = localStorage.getItem(renderModeStorageKey(projectId));
+    if (stored === "ssg" || stored === "ssr") {
+      return stored;
+    }
+    return seedFromLegacyBuildMode(projectId)?.renderMode ?? "ssr";
+  });
+  const [host, setHostState] = useState<PublishHost>(() => {
+    const stored = localStorage.getItem(hostStorageKey(projectId));
+    if (
+      stored === "local" ||
+      stored === "cloudflare" ||
+      stored === "coolify" ||
+      stored === "ssh"
+    ) {
+      return stored;
+    }
+    return seedFromLegacyBuildMode(projectId)?.host ?? "local";
+  });
+  const setRenderMode = (value: RenderMode) => {
+    localStorage.setItem(renderModeStorageKey(projectId), value);
+    setRenderModeState(value);
+  };
+  const setHost = (value: PublishHost) => {
+    localStorage.setItem(hostStorageKey(projectId), value);
+    setHostState(value);
+  };
+  // host: "coolify" — the target app's deploy webhook, per project. Not stored
+  // server-side; forwarded to the publisher on each publish.
+  const [coolifyWebhookUrl, setCoolifyWebhookUrlState] = useState(() =>
+    readStored(coolifyWebhookStorageKey(projectId))
+  );
+  const [coolifyWebhookToken, setCoolifyWebhookTokenState] = useState(() =>
+    readStored(coolifyWebhookTokenStorageKey(projectId))
+  );
+  const setCoolifyWebhookUrl = (value: string) => {
+    writeStored(coolifyWebhookStorageKey(projectId), value);
+    setCoolifyWebhookUrlState(value);
+  };
+  const setCoolifyWebhookToken = (value: string) => {
+    writeStored(coolifyWebhookTokenStorageKey(projectId), value);
+    setCoolifyWebhookTokenState(value);
+  };
+  return {
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
+  };
+};
 
 const getPublishErrorFinding = (
   error: JSX.Element | string,
@@ -87,6 +201,16 @@ export const PublishButton = ({ projectId }: PublishProps) => {
   const [manualDomains, setManualDomains] = useState<string[]>();
   const validationSession = useRef(0);
   const requestedManualDomains = useRef<string[]>([]);
+  const {
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
+  } = usePublishTarget(projectId);
 
   useEffect(() => {
     return () => {
@@ -949,6 +1073,14 @@ export const PublishButton = ({ projectId }: PublishProps) => {
               projectId,
               destination: publishedDeploymentDestination,
               domains,
+              renderMode,
+              host,
+              coolifyWebhookUrl:
+                host === "coolify" ? coolifyWebhookUrl.trim() : undefined,
+              coolifyWebhookToken:
+                host === "coolify" && coolifyWebhookToken.trim() !== ""
+                  ? coolifyWebhookToken.trim()
+                  : undefined,
             }),
         });
         if (!isCurrentProject()) {
@@ -1143,6 +1275,14 @@ export const PublishButton = ({ projectId }: PublishProps) => {
     publishSite,
     exportStatic,
     invalidateValidation,
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
     reset: () => {
       resetValidationState();
       dismissCountdown();

@@ -45,6 +45,7 @@ import { $currentSystem } from "~/shared/system";
 import { getPublishUrl } from "./publish-url";
 import type { SessionPublish } from "./session-publishes";
 import { DomainStatusButton } from "./domain-status-button";
+import type { PublishHost } from "./publish-target";
 
 export type Domain = Project["domainsVirtual"][number];
 
@@ -61,9 +62,39 @@ export const getStatus = (projectDomain: Domain) =>
     ? (`VERIFIED_${projectDomain.status}` as const)
     : `UNVERIFIED`;
 
+/**
+ * Mirrors webstudio-publisher's toCfProjectName (server.mjs) so the CNAME
+ * instructions shown here match the Cloudflare Pages project the publisher
+ * will actually create. CF Pages project names must be
+ * [a-z0-9][a-z0-9-]*[a-z0-9] and ≤ 58 chars.
+ */
+const toCfProjectName = (domain: string) =>
+  domain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 58);
+
+/**
+ * True when this domain was last successfully published to a different host
+ * than the one about to be used. Its DNS record was set up (or last confirmed
+ * working) for the previous host — this self-host instance, a Cloudflare Pages
+ * project, a Coolify app, a remote server — and publishing now won't fix that:
+ * DNS is the user's to update, the publisher only changes the destination.
+ * `renderMode` is intentionally ignored — it never changes a domain's DNS.
+ */
+const getDnsMayBeStale = (projectDomain: Domain, host: PublishHost) => {
+  const lastHost = projectDomain.latestBuildVirtual?.host;
+  return (
+    projectDomain.latestBuildVirtual?.publishStatus === "PUBLISHED" &&
+    lastHost != null &&
+    lastHost !== host
+  );
+};
 const getStatusText = (props: {
   projectDomain: Domain;
   isLoading: boolean;
+  host: PublishHost;
 }) => {
   const status = getStatus(props.projectDomain);
 
@@ -108,8 +139,26 @@ const getStatusText = (props: {
       break;
   }
 
+  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.host);
+  if (dnsMayBeStale) {
+    text = (
+      <>
+        {text}
+        <br />
+        <br />
+        The publishing destination has changed: the DNS record for this domain
+        may still point to its previous host. Please remember to update the
+        CNAME.
+      </>
+    );
+  }
+
   return {
-    color: props.isLoading ? cssVar("--foreground-secondary") : color,
+    color: props.isLoading
+      ? cssVar("--foreground-secondary")
+      : dnsMayBeStale
+        ? cssVar("--foreground-warning")
+        : color,
     Icon,
     text: props.isLoading ? "Loading status..." : text,
   };
@@ -120,6 +169,7 @@ const StatusIcon = (props: {
   isLoading: boolean;
   latestPublish?: SessionPublish;
   onOpenReport?: (domain: string) => void;
+  host: PublishHost;
 }) => {
   const fallback = getStatusText(props);
   return (
@@ -140,6 +190,7 @@ const DomainItem = ({
   validatedDomains,
   onOpenReport,
   latestPublish,
+  host,
 }: {
   initiallyOpen: boolean;
   projectDomain: Domain;
@@ -148,6 +199,7 @@ const DomainItem = ({
   validatedDomains?: readonly string[];
   onOpenReport?: (domain: string) => void;
   latestPublish?: SessionPublish;
+  host: PublishHost;
 }) => {
   const timeSinceLastUpdateMs =
     Date.now() - new Date(projectDomain.updatedAt).getTime();
@@ -275,6 +327,7 @@ const DomainItem = ({
   const { color, text } = getStatusText({
     projectDomain,
     isLoading: false,
+    host,
   });
 
   const publisherHost = useStore($publisherHost);
@@ -285,6 +338,15 @@ const DomainItem = ({
   });
   const cname = extractCname(projectDomain.domain);
   const isApexDomain = cname === "@";
+
+  // Cloudflare Pages serves from its own project, not this self-host
+  // instance — the CNAME target is the Pages project, not
+  // `customers.${publisherHost}`. See toCfProjectName above: this is what
+  // webstudio-publisher will actually create/deploy to.
+  const cnameTarget =
+    host === "cloudflare"
+      ? `${toCfProjectName(project.domain)}.pages.dev`
+      : `${projectDomain.cname}.customers.${publisherHost}`;
 
   // Records for the Entri automatic DNS setup widget.
   // Entri only supports CNAME / ALIAS / TXT — A records are not included.
@@ -301,7 +363,7 @@ const DomainItem = ({
         {
           type: "CNAME" as const,
           host: cname,
-          value: `${projectDomain.cname}.customers.${publisherHost}`,
+          value: cnameTarget,
           ttl: 300,
         },
         {
@@ -356,6 +418,7 @@ const DomainItem = ({
             isLoading={isStatusLoading}
             onOpenReport={onOpenReport}
             latestPublish={latestPublish}
+            host={host}
           />
 
           <CopyToClipboard
@@ -573,6 +636,7 @@ type DomainsProps = {
   validatedDomains?: readonly string[];
   onOpenReport?: (domain: string) => void;
   sessionPublishes?: SessionPublish[];
+  host: PublishHost;
 };
 
 export const Domains = ({
@@ -583,6 +647,7 @@ export const Domains = ({
   validatedDomains,
   onOpenReport,
   sessionPublishes = [],
+  host,
 }: DomainsProps) => {
   return (
     <>
@@ -600,6 +665,7 @@ export const Domains = ({
               item.target === "site" &&
               item.domains.includes(projectDomain.domain)
           )}
+          host={host}
         />
       ))}
     </>
