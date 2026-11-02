@@ -28,7 +28,7 @@ export const domainRouter = router({
     try {
       return await deploymentTrpc.capabilities.query();
     } catch {
-      return { cloudflare: false };
+      return { cloudflare: false, coolify: false, ssh: false, targets: [] };
     }
   }),
 
@@ -79,8 +79,16 @@ export const domainRouter = router({
           projectId: z.string(),
           domains: z.array(z.string()),
           destination: z.literal(publishedDeploymentDestination),
-          // Self-hosting only: "ssg" (static, default) or "ssr" (Node subprocess)
-          buildMode: z.enum(["ssg", "ssr", "cloudflare"]).default("ssr"),
+          // Self-hosting publish target (see packages/sdk deployment schema):
+          //   renderMode — "ssg" (static) | "ssr" (Node server)
+          //   host       — "local" | "cloudflare" | "coolify" | "ssh"
+          renderMode: z.enum(["ssg", "ssr"]).default("ssr"),
+          host: z
+            .enum(["local", "cloudflare", "coolify", "ssh"])
+            .default("local"),
+          // host: "coolify" only — the target app's deploy webhook (per site)
+          coolifyWebhookUrl: z.string().optional(),
+          coolifyWebhookToken: z.string().optional(),
         }),
         z.object({
           projectId: z.string(),
@@ -99,6 +107,10 @@ export const domainRouter = router({
               project,
               domains,
               target: getPublishTargetForDomains(project, domains),
+              renderMode: input.renderMode,
+              host: input.host,
+              coolifyWebhookUrl: input.coolifyWebhookUrl,
+              coolifyWebhookToken: input.coolifyWebhookToken,
             },
             ctx
           );

@@ -57,6 +57,7 @@ test.each(["light", "dark"] as const)(
               <ProjectCard
                 project={project}
                 publisherHost="wstd.work"
+                secureCookie={false}
                 projectsTags={[{ id: "production", label: "Prod" }]}
               />
             </TooltipProvider>
