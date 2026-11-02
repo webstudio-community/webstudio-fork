@@ -40,6 +40,16 @@ export const domainRouter = router({
         return createErrorResponse(error);
       }
     }),
+  publisherCapabilities: procedure.query(async ({ ctx }) => {
+    const { deploymentTrpc } = ctx.deployment;
+    try {
+      return await deploymentTrpc.capabilities.query();
+    } catch {
+      return { cloudflare: false };
+    }
+  }),
+
+
   getEntriToken: procedure.query(async ({ ctx }) => {
     try {
       const result = await ctx.entri.entryApi.getEntriToken();
@@ -80,6 +90,8 @@ export const domainRouter = router({
           projectId: z.string(),
           domains: z.array(z.string()),
           destination: z.literal(publishedDeploymentDestination),
+          // Self-hosting only: "ssg" (static, default) or "ssr" (Node subprocess)
+          buildMode: z.enum(["ssg", "ssr", "cloudflare"]).default("ssr"),
         }),
         z.object({
           projectId: z.string(),

@@ -1,6 +1,7 @@
 {
   "extends": "@webstudio-is/tsconfig/base.json",
   "include": ["**/*.ts", "**/*.tsx", "**/*.mjs", "../../@types/**/*.d.ts"],
+  "exclude": ["templates/**"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "types": ["vite/client", "@webstudio-is/react-sdk/placeholder"],
