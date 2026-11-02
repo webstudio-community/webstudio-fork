@@ -1139,6 +1139,10 @@ export const apiRouter = router({
           domains: z.array(z.string()).optional(),
           message: z.string().optional(),
           idempotencyKey: z.string().optional(),
+          renderMode: z.enum(["ssg", "ssr"]).optional(),
+          host: z.enum(["local", "cloudflare", "coolify", "ssh"]).optional(),
+          coolifyWebhookUrl: z.string().optional(),
+          coolifyWebhookToken: z.string().optional(),
         }),
         projectIdInput.extend({
           target: z.literal("static"),
@@ -1178,7 +1182,15 @@ export const apiRouter = router({
             input.domains ?? getDefaultPublishDomains(project, input.target);
           assertPublishDomains({ auth, domains, project });
           const result = await publishProject(
-            { project, domains, target: input.target },
+            {
+              project,
+              domains,
+              target: input.target,
+              renderMode: input.renderMode,
+              host: input.host,
+              coolifyWebhookUrl: input.coolifyWebhookUrl,
+              coolifyWebhookToken: input.coolifyWebhookToken,
+            },
             ctx
           );
           return {

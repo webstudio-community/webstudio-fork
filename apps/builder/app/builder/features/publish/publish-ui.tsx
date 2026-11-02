@@ -43,6 +43,7 @@ import {
   css,
   textVariants,
   SmallIconButton,
+  Collapsible,
 } from "@webstudio-is/design-system";
 import { validateProjectDomain, type Project } from "@webstudio-is/project";
 import {
@@ -78,6 +79,8 @@ import {
   EllipsesIcon,
   PlusIcon,
   TerminalIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from "@webstudio-is/icons";
 import { AddDomain } from "./add-domain";
 import { humanizeString } from "~/shared/string-utils";
@@ -102,6 +105,15 @@ import {
   getStaticPublishStatusDisplay,
 } from "./publish-status";
 import { DomainStatusButton } from "./domain-status-button";
+import {
+  isPublishTargetAvailable,
+  publishHostDescriptions,
+  publishHostLabels,
+  publishHosts,
+  publishHostUnavailableReason,
+  type PublishHost,
+  type RenderMode,
+} from "./publish-target";
 
 type PublishUiState = {
   isPublishing: boolean;
@@ -127,6 +139,14 @@ type PublishUiState = {
     maxDailyPublishesPerUser: number
   ) => void;
   exportStatic: (templates: readonly Templates[]) => void;
+  renderMode: RenderMode;
+  setRenderMode: (value: RenderMode) => void;
+  host: PublishHost;
+  setHost: (value: PublishHost) => void;
+  coolifyWebhookUrl: string;
+  setCoolifyWebhookUrl: (value: string) => void;
+  coolifyWebhookToken: string;
+  setCoolifyWebhookToken: (value: string) => void;
 };
 
 type StaticPublishUiState = Pick<
@@ -409,6 +429,30 @@ const matchesValidatedDomains = (form: HTMLFormElement, domains: string[]) => {
   );
 };
 
+const advancedPublishOpenStorageKey = "publish:advancedOpen";
+
+// A global UI preference, forced open when a non-default target is selected.
+const useAdvancedPublishOpen = (hasNonDefaultTarget: boolean) => {
+  const [isOpen, setIsOpen] = useState(() => {
+    if (hasNonDefaultTarget) {
+      return true;
+    }
+    try {
+      return localStorage.getItem(advancedPublishOpenStorageKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const handleOpenChange = (open: boolean) => {
+    try {
+      localStorage.setItem(advancedPublishOpenStorageKey, String(open));
+    } catch {
+    }
+    setIsOpen(open);
+  };
+  return [isOpen, handleOpenChange] as const;
+};
+
 const Publish = ({
   project,
   quota,
@@ -430,6 +474,14 @@ const Publish = ({
     siteError,
     siteErrorSource,
     openSiteReport: onOpenReport,
+    renderMode,
+    setRenderMode,
+    host,
+    setHost,
+    coolifyWebhookUrl,
+    setCoolifyWebhookUrl,
+    coolifyWebhookToken,
+    setCoolifyWebhookToken,
   } = flow;
   const { userPublishCount, maxDailyPublishesPerUser } = quota;
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -444,6 +496,28 @@ const Publish = ({
       : getPublishStatusDisplay(project.latestBuildVirtual).status === "PENDING"
     : false;
   const isPublishInProgress = isPublishing || hasPendingState;
+  const publisherHost = useStore($publisherHost);
+  const [advancedOpen, setAdvancedOpen] = useAdvancedPublishOpen(
+    renderMode !== "ssr" || host !== "local"
+  );
+  const { load: loadCapabilities, data: capabilities } =
+    trpcClient.domain.publisherCapabilities.useQuery();
+
+  useEffect(() => {
+    if (publisherHost) {
+      loadCapabilities(undefined);
+    }
+  }, [publisherHost, loadCapabilities]);
+
+  // e.g. SSR + Cloudflare
+  useEffect(() => {
+    if (
+      host !== "local" &&
+      isPublishTargetAvailable(capabilities, renderMode, host) === false
+    ) {
+      setHost("local");
+    }
+  }, [capabilities, renderMode, host, setHost]);
 
   useEffect(() => {
     const form = buttonRef.current?.closest("form");
@@ -511,6 +585,8 @@ const Publish = ({
   const getForm = () => buttonRef.current?.closest("form");
   const findings = flow.siteFindings;
   const hasSessionPublish = latestSitePublish !== undefined;
+  const missingCoolifyWebhook =
+    host === "coolify" && coolifyWebhookUrl.trim() === "";
 
   return (
     <Flex gap={2} shrink={false} direction={"column"}>
@@ -560,12 +636,107 @@ const Publish = ({
           }
         />
       )}
+      {publisherHost && (
+        <Collapsible.Root
+          asChild
+          open={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+        >
+          <Flex direction="column" gap="2">
+            <Collapsible.Trigger asChild>
+              <Button
+                color="ghost"
+                css={{ width: "100%", justifyContent: "start" }}
+                prefix={
+                  advancedOpen ? <ChevronDownIcon /> : <ChevronRightIcon />
+                }
+              >
+                Advanced settings
+              </Button>
+            </Collapsible.Trigger>
+            <Collapsible.Content asChild>
+              <Flex direction="column" gap="2">
+                <Select
+                  fullWidth
+                  value={renderMode}
+                  options={["ssr", "ssg"] as const}
+                  getLabel={(value: RenderMode) =>
+                    value === "ssr" ? "Dynamic (SSR)" : "Static (SSG)"
+                  }
+                  getDescription={(value: RenderMode) =>
+                    value === "ssr"
+                      ? "Dynamic data, rendered per request"
+                      : "Prerendered static files, no dynamic data"
+                  }
+                  onChange={setRenderMode}
+                />
+                <Select
+                  fullWidth
+                  value={host}
+                  options={publishHosts}
+                  getLabel={(value: PublishHost) => publishHostLabels[value]}
+                  getDescription={(value: PublishHost) =>
+                    publishHostDescriptions[value]
+                  }
+                  getItemProps={(value: PublishHost) => {
+                    const reason = publishHostUnavailableReason(
+                      capabilities,
+                      renderMode,
+                      value
+                    );
+                    return reason === undefined
+                      ? {}
+                      : { disabled: true, title: reason };
+                  }}
+                  onChange={setHost}
+                />
+                {host === "coolify" && (
+                  <Flex direction="column" gap="1">
+                    <Label htmlFor="coolifyWebhookUrl">
+                      Coolify deploy webhook URL
+                    </Label>
+                    <InputField
+                      id="coolifyWebhookUrl"
+                      type="url"
+                      placeholder="https://coolify.example.com/api/v1/deploy?uuid=…"
+                      value={coolifyWebhookUrl}
+                      onChange={(event) =>
+                        setCoolifyWebhookUrl(event.target.value)
+                      }
+                    />
+                    <InputField
+                      id="coolifyWebhookToken"
+                      type="password"
+                      placeholder="Bearer token (optional)"
+                      value={coolifyWebhookToken}
+                      onChange={(event) =>
+                        setCoolifyWebhookToken(event.target.value)
+                      }
+                    />
+                    <Text color="subtle">
+                      Create a Docker Image app on your Coolify, then paste its
+                      deploy webhook here.{" "}
+                      <Link
+                        href="https://github.com/webstudio-community/webstudio-self-host#coolify-remote-ssr"
+                        target="_blank"
+                      >
+                        Host with Coolify
+                      </Link>
+                    </Text>
+                  </Flex>
+                )}
+              </Flex>
+            </Collapsible.Content>
+          </Flex>
+        </Collapsible.Root>
+      )}
       <PublishActions
         publishButtonRef={buttonRef}
         validationState={validationState}
         validateDisabled={isPublishInProgress}
         publishDisabled={
           hasSelectedDomains === false ||
+          missingCoolifyWebhook ||
           (restrictedFeatures.size > 0 && hasCustomDomainsSelected) ||
           userPublishCount >= maxDailyPublishesPerUser
         }
@@ -574,6 +745,11 @@ const Publish = ({
           isPublishInProgress && (countdown === undefined || countdown === 0)
         }
         hasSelectedDomains={hasSelectedDomains}
+        disabledReason={
+          missingCoolifyWebhook
+            ? "Enter the Coolify deploy webhook URL in Advanced settings"
+            : undefined
+        }
         publishLabel={
           countdown !== undefined && countdown > 0
             ? `Publishing (${countdown}s)`
@@ -970,6 +1146,7 @@ export const Content = (props: {
                 props.flow.openSiteReport(domain, "publish")
               }
               sessionPublishes={props.flow.publishes}
+              host={props.flow.host}
             />
           </RadioGroup>
         </ScrollArea>

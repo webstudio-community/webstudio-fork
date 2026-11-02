@@ -33,6 +33,10 @@ export const deployment = z.union([
      */
     projectDomain: z.string().optional(),
     excludeWstdDomainFromSearch: z.boolean().optional(),
+    // Self-hosting only. Lets the Publish dialog warn when the host changes, since
+    // the domain's DNS targets the old one.
+    renderMode: z.enum(["ssg", "ssr"]).optional(),
+    host: z.enum(["local", "cloudflare", "coolify", "ssh"]).optional(),
   }),
 ]);
 

@@ -876,7 +876,9 @@ const copyTemplates = async (template: string) => {
 };
 
 const importFrom = (importee: string, importer: string) => {
-  return relative(dirname(importer), importee).replaceAll("\\", "/");
+  const path = relative(dirname(importer), importee).replaceAll("\\", "/");
+  // Without a leading `./`, Node's ESM resolution reads a bare specifier.
+  return path.startsWith(".") ? path : `./${path}`;
 };
 
 const npmrc = `force=true

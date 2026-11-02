@@ -45,6 +45,7 @@ import { $currentSystem } from "~/shared/system";
 import { getPublishUrl } from "./publish-url";
 import type { SessionPublish } from "./session-publishes";
 import { DomainStatusButton } from "./domain-status-button";
+import type { PublishHost } from "./publish-target";
 
 export type Domain = Project["domainsVirtual"][number];
 
@@ -61,9 +62,28 @@ export const getStatus = (projectDomain: Domain) =>
     ? (`VERIFIED_${projectDomain.status}` as const)
     : `UNVERIFIED`;
 
+// Mirrors toCfProjectName in webstudio-publisher's server.mjs.
+const toCfProjectName = (domain: string) =>
+  domain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 58);
+
+// DNS still points at the previous host; publishing does not change it.
+// renderMode never affects DNS.
+const getDnsMayBeStale = (projectDomain: Domain, host: PublishHost) => {
+  const lastHost = projectDomain.latestBuildVirtual?.host;
+  return (
+    projectDomain.latestBuildVirtual?.publishStatus === "PUBLISHED" &&
+    lastHost != null &&
+    lastHost !== host
+  );
+};
 const getStatusText = (props: {
   projectDomain: Domain;
   isLoading: boolean;
+  host: PublishHost;
 }) => {
   const status = getStatus(props.projectDomain);
 
@@ -108,8 +128,26 @@ const getStatusText = (props: {
       break;
   }
 
+  const dnsMayBeStale = getDnsMayBeStale(props.projectDomain, props.host);
+  if (dnsMayBeStale) {
+    text = (
+      <>
+        {text}
+        <br />
+        <br />
+        The publishing destination has changed: the DNS record for this domain
+        may still point to its previous host. Please remember to update the
+        CNAME.
+      </>
+    );
+  }
+
   return {
-    color: props.isLoading ? cssVar("--foreground-secondary") : color,
+    color: props.isLoading
+      ? cssVar("--foreground-secondary")
+      : dnsMayBeStale
+        ? cssVar("--foreground-warning")
+        : color,
     Icon,
     text: props.isLoading ? "Loading status..." : text,
   };
@@ -120,6 +158,7 @@ const StatusIcon = (props: {
   isLoading: boolean;
   latestPublish?: SessionPublish;
   onOpenReport?: (domain: string) => void;
+  host: PublishHost;
 }) => {
   const fallback = getStatusText(props);
   return (
@@ -140,6 +179,7 @@ const DomainItem = ({
   validatedDomains,
   onOpenReport,
   latestPublish,
+  host,
 }: {
   initiallyOpen: boolean;
   projectDomain: Domain;
@@ -148,6 +188,7 @@ const DomainItem = ({
   validatedDomains?: readonly string[];
   onOpenReport?: (domain: string) => void;
   latestPublish?: SessionPublish;
+  host: PublishHost;
 }) => {
   const timeSinceLastUpdateMs =
     Date.now() - new Date(projectDomain.updatedAt).getTime();
@@ -275,6 +316,7 @@ const DomainItem = ({
   const { color, text } = getStatusText({
     projectDomain,
     isLoading: false,
+    host,
   });
 
   const publisherHost = useStore($publisherHost);
@@ -285,6 +327,12 @@ const DomainItem = ({
   });
   const cname = extractCname(projectDomain.domain);
   const isApexDomain = cname === "@";
+
+  // The CNAME targets the Pages project, not this instance.
+  const cnameTarget =
+    host === "cloudflare"
+      ? `${toCfProjectName(project.domain)}.pages.dev`
+      : `${projectDomain.cname}.customers.${publisherHost}`;
 
   // Entri supports CNAME, ALIAS and TXT only.
   const entriRecords = isApexDomain
@@ -300,7 +348,7 @@ const DomainItem = ({
         {
           type: "CNAME" as const,
           host: cname,
-          value: `${projectDomain.cname}.customers.${publisherHost}`,
+          value: cnameTarget,
           ttl: 300,
         },
         {
@@ -353,6 +401,7 @@ const DomainItem = ({
             isLoading={isStatusLoading}
             onOpenReport={onOpenReport}
             latestPublish={latestPublish}
+            host={host}
           />
 
           <CopyToClipboard
@@ -570,6 +619,7 @@ type DomainsProps = {
   validatedDomains?: readonly string[];
   onOpenReport?: (domain: string) => void;
   sessionPublishes?: SessionPublish[];
+  host: PublishHost;
 };
 
 export const Domains = ({
@@ -580,6 +630,7 @@ export const Domains = ({
   validatedDomains,
   onOpenReport,
   sessionPublishes = [],
+  host,
 }: DomainsProps) => {
   return (
     <>
@@ -597,6 +648,7 @@ export const Domains = ({
               item.target === "site" &&
               item.domains.includes(projectDomain.domain)
           )}
+          host={host}
         />
       ))}
     </>

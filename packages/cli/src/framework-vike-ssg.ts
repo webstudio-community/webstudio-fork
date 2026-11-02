@@ -64,6 +64,11 @@ export const createFramework = async (
       )
     );
 
+  const sitemapPluginTemplate = await readFile(
+    join(templatesDirectory, "sitemap-plugin.ts"),
+    "utf8"
+  );
+
   const getRouteTemplates = (
     type: "html" | "text",
     pagePath: string,
@@ -116,6 +121,12 @@ export const createFramework = async (
     xml: () => [],
     text: ({ pagePath }) =>
       isPathnamePattern(pagePath) ? [] : getRouteTemplates("text", pagePath),
-    defaultSitemap: () => [],
+    // vike prerenders routes to <route>/index.html, so the sitemap comes from the client build.
+    defaultSitemap: () => [
+      {
+        file: join("app", "sitemap-plugin.ts"),
+        template: sitemapPluginTemplate,
+      },
+    ],
   };
 };

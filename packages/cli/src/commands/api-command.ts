@@ -1159,7 +1159,7 @@ const publishDomainsOption = (yargs: CommonYargsArgv) =>
       "Domain to publish or unpublish. Repeat or comma-separate to target multiple domains. Defaults to the configured project domain and active verified custom domains.",
   });
 
-export const publishCommandOptions = (yargs: CommonYargsArgv) =>
+const publishBaseCommandOptions = (yargs: CommonYargsArgv) =>
   publishDomainsOption(publishTargetOption(apiCommandOptions(yargs)))
     .option("wait", {
       type: "boolean",
@@ -1186,6 +1186,19 @@ export const publishCommandOptions = (yargs: CommonYargsArgv) =>
       ] as const,
       describe:
         "Static export template. Repeat to request multiple templates; defaults to ssg.",
+    });
+
+export const publishCommandOptions = (yargs: CommonYargsArgv) =>
+  publishBaseCommandOptions(yargs)
+    .option("render-mode", {
+      choices: ["ssg", "ssr"] as const,
+      describe:
+        "Optional render mode of the self-hosted publish. Defaults to the publisher default (ssg)",
+    })
+    .option("host", {
+      choices: ["local", "cloudflare", "coolify", "ssh"] as const,
+      describe:
+        "Optional self-hosting publish host. Defaults to the publisher default (local)",
     });
 
 export const validatePublishCommandOptions = (yargs: CommonYargsArgv) =>
@@ -1411,6 +1424,8 @@ export type ApiCommandOptions = {
   logHandle?: string;
   wait?: boolean;
   idempotencyKey?: string;
+  renderMode?: "ssg" | "ssr";
+  host?: "local" | "cloudflare" | "coolify" | "ssh";
   from?: string;
   to?: string;
   designToken?: string;
@@ -1703,6 +1718,16 @@ const publishTemplateValues = (value: ApiCommandOptions["template"]) =>
       "--template"
     )
   );
+
+const publishRenderModeOption = (
+  value: ApiCommandOptions["renderMode"]
+): "ssg" | "ssr" | undefined =>
+  optionalChoice(value, ["ssg", "ssr"], "--render-mode");
+
+const publishHostOption = (
+  value: ApiCommandOptions["host"]
+): "local" | "cloudflare" | "coolify" | "ssh" | undefined =>
+  optionalChoice(value, ["local", "cloudflare", "coolify", "ssh"], "--host");
 
 const textUpdateModeOption = (
   value: ApiCommandOptions["mode"]
@@ -3254,6 +3279,8 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
         domains: listStringOption(options.domain),
         message: options.message,
         idempotencyKey: options.idempotencyKey,
+        renderMode: publishRenderModeOption(options.renderMode),
+        host: publishHostOption(options.host),
       };
       envelope = await runProjectSessionCommand(
         "publish",

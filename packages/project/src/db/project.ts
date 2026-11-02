@@ -226,14 +226,52 @@ export const markAsDeleted = async (
 };
 
 /**
- * Soft-delete a single project: marks it as deleted and frees the subdomain
- * by assigning a unique random domain. Must be called once per project —
- * never in a bulk update — so every row gets its own unique domain.
+  * Must run before the subdomain is freed: the publisher keys its routing on the
+  * original hostname. NOT_IMPLEMENTED means no self-hosted publisher.
+const unpublishProjectHostnames = async (
+  projectId: string,
+  context: AppContext
+) => {
+  const { deploymentTrpc, env } = context.deployment;
+
+  const result = await context.postgrest.client
+    .from("Project")
+    .select("domain, domainsVirtual(domain)")
+    .eq("id", projectId)
+    .single();
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  const projectDomain = result.data.domain;
+  const hostnames = [
+    projectDomain.includes(".") || env.PUBLISHER_HOST === ""
+      ? projectDomain
+      : `${projectDomain}.${env.PUBLISHER_HOST}`,
+    ...result.data.domainsVirtual.map(({ domain }) => domain),
+  ];
+
+  for (const domain of hostnames) {
+    const unpublished = await deploymentTrpc.unpublish.mutate({ domain });
+    if (
+      unpublished.success === false &&
+      unpublished.error !== "NOT_IMPLEMENTED"
+    ) {
+      throw new Error(`Failed to unpublish ${domain}: ${unpublished.error}`);
+    }
+  }
+};
+
+ * Takes the published sites offline, then frees the subdomain. Call once per
+ * project, never in a bulk update, so every row gets a unique domain.
  */
 export const softDeleteProject = async (
   projectId: string,
   context: AppContext
 ) => {
+  await unpublishProjectHostnames(projectId, context);
+
   const result = await context.postgrest.client
     .from("Project")
     .update({
