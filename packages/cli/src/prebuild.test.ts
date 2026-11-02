@@ -7339,6 +7339,21 @@ export const createManagedFormResourceFetch = () => {
     await writeSiteData(siteData);
 
     await prebuild({ assets: false, template: ["ssg"] });
+
+    // SSG sites install upstream's sdk-components-react, which lacks both symbols.
+    const pageTemplate = await readFile("pages/index/+Page.tsx", "utf8");
+    expect(pageTemplate).toMatch(
+      /import \{ ActionResourcesContext \} from "[^"]*\/webhook-form"/
+    );
+    const generatedComponent = await readFile(
+      "app/__generated__/_index.tsx",
+      "utf8"
+    );
+    expect(generatedComponent).toContain('from "../webhook-form"');
+    expect(generatedComponent).not.toMatch(
+      /import \{[^}]*\bForm\b[^}]*\} from "@webstudio-is\/sdk-components-react/
+    );
+
     await symlink(join(originalCwd, "node_modules"), "node_modules", "dir");
     await prerenderSsg();
 
