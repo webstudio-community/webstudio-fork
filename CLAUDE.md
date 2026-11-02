@@ -162,6 +162,31 @@ pnpm -r --filter='./packages/**' build
 
 Both env files are committed. Edit `.env.development` for machine-specific overrides.
 
+### Session cookies require HTTPS (`__Host-` prefix)
+
+Session/CSRF/returnTo cookies (`session.server.ts`, `builder-session.server.ts`,
+`csrf-session.server.ts`, `cookie.server.ts`) use the `__Host-` prefix, which
+browsers only accept over HTTPS — this is why local dev serves the builder at
+`https://localhost:5173` with a self-signed cert instead of plain HTTP. For
+deployments that can't put TLS in front of the app (e.g. testing
+`webstudio-self-host`'s `docker-compose.yml` on bare `http://localhost`), set
+`ALLOW_INSECURE_COOKIES=true` to drop both the `__Host-` prefix and the
+`Secure` flag together (`secureCookieName()` in `env.server.ts`). This is
+refused at startup when `DEPLOYMENT_ENVIRONMENT=production` — never set it on
+a real deployment.
+
+### Standalone deploy gotcha (`apps/builder/Dockerfile`)
+
+`pnpm --filter "@webstudio-is/builder" --prod deploy /standalone` only creates top-level
+`node_modules` symlinks for `apps/builder`'s **direct** dependencies. A package used at
+runtime only as a _transitive_ dependency (e.g. pulled in by a workspace package like
+`@webstudio-is/project-build`) stays nested in the pnpm virtual store with no top-level
+symlink, so Node's ESM resolution fails from the bundled server output
+(`ERR_MODULE_NOT_FOUND`) even though the package built fine. Seen with `react-router-dom`
+(fixed via manual symlink in the Dockerfile) and `parse5` (fixed by declaring it as a
+direct dependency in `apps/builder/package.json`). If a similar error shows up for another
+package, check whether it's declared directly in `apps/builder/package.json` first.
+
 ---
 
 ## Architecture
