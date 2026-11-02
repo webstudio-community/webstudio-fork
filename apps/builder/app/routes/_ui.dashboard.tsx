@@ -194,6 +194,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       planFeatures,
       purchases,
       publisherHost: env.PUBLISHER_HOST,
+      secureCookie: env.SECURE_COOKIE,
       origin,
       projectToClone,
       workspaces,
