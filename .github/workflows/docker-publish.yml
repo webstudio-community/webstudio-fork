@@ -1,0 +1,476 @@
+name: Docker — Build & Publish
+
+on:
+  # Gates image publishing (not merging — sync-upstream.yml pushes to develop
+  # unconditionally) on the standalone deploy actually working at runtime:
+  # fires once verify-standalone-deps.yml finishes running on develop (it has
+  # its own `push: branches: [develop]` trigger), gated below on its
+  # conclusion. A plain `push` trigger here — or a job in this workflow that
+  # calls that one and gets `needs:` on — would only run *after* the image
+  # build already started (or, with `needs:`, drag along GitHub Actions'
+  # transitive-needs-skip semantics, which bit this workflow twice before).
+  # workflow_run decouples the two files completely: this workflow doesn't
+  # even start until the check has already passed.
+  workflow_run:
+    workflows: ["Verify standalone deploy"]
+    types: [completed]
+    branches: [develop]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/builder
+
+jobs:
+  # Each platform builds on its native runner (no QEMU — the emulated arm64
+  # pnpm install hangs since the upstream oxc/rolldown/TS7 toolchain
+  # migration) and pushes an untagged image by digest. The merge job then
+  # assembles the multi-arch manifest from those digests.
+  build:
+    name: Build builder image (${{ matrix.platform }})
+    # workflow_run fires on both success and failure of the watched workflow
+    # (types: [completed]) — only proceed when it actually passed. Every
+    # other trigger (pull_request/release/workflow_dispatch) isn't gated.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    permissions:
+      contents: read
+      packages: write   # required for ghcr.io push
+
+    steps:
+      # For workflow_run, github.sha/github.ref default to develop's *current*
+      # tip, not the commit verify-standalone-deps actually checked — pin the
+      # exact verified commit explicitly so a push landing in the gap between
+      # that check finishing and this job starting can't slip an unverified
+      # commit into the image. github.sha already resolves to the right
+      # commit for every other trigger (the PR merge commit, the release tag,
+      # the dispatched ref), so only override it for workflow_run.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      # "linux/amd64" → "linux-amd64" for artifact names and cache scopes
+      - name: Prepare platform pair
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Login to GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        env:
+          # The per-platform summary would only show an untagged digest push —
+          # the merge job writes the real summary with the final tags.
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          file: apps/builder/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+            type=gha,scope=develop-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge & push manifest
+    runs-on: ubuntu-24.04
+    needs: build
+
+    permissions:
+      contents: read
+      packages: write   # required for ghcr.io push
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Login to GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Sanitize branch name for use as image tag (pull_request and workflow_dispatch)
+      - name: Compute branch tag
+        id: branch
+        run: |
+          # For PR events GITHUB_REF_NAME is "N/merge" — use head_ref instead
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH="${{ github.head_ref }}"
+          else
+            BRANCH="${GITHUB_REF_NAME}"
+          fi
+          SAFE=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
+          if [[ "$BRANCH" == "develop" ]]; then
+            echo "is_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$SAFE" >> "$GITHUB_OUTPUT"
+
+      # Derive image tags:
+      #   push to develop                        → :latest
+      #   workflow_dispatch on develop           → :latest
+      #   workflow_dispatch on other branch      → :<sanitized-branch>
+      #   pull_request                           → :<sanitized-branch>
+      #   published release                      → :<version> + :latest
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true') }}
+            type=raw,value=${{ steps.branch.outputs.tag }},enable=${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') && steps.branch.outputs.is_main == 'false' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+
+      # Retagging strands the previous manifest and its per-arch children as
+      # untagged versions (each develop push moves `latest`, each PR push
+      # moves the branch tag). Record what the tags point to now, so the
+      # prune step below can delete exactly what this run dethrones.
+      - name: Capture previous tag digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+          > "${{ runner.temp }}/previous-digests.txt"
+          for TAG in $(jq -r '.tags[] | split(":") | last' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+            # tag may not exist yet (first push of a branch) — skip quietly
+            DIGEST=$(curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" \
+              "$MANIFEST_URL/$TAG" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')
+            [ -z "$DIGEST" ] && continue
+            echo "$DIGEST" >> "${{ runner.temp }}/previous-digests.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/previous-digests.txt"
+          done
+          sort -u -o "${{ runner.temp }}/previous-digests.txt" "${{ runner.temp }}/previous-digests.txt"
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf -- "$REGISTRY_IMAGE@sha256:%s " *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}"
+
+      # Delete the versions this run just dethroned. A digest is only deleted
+      # if no tag in the registry still references it (identical rebuilds and
+      # children shared with other tags survive).
+      - name: Prune dethroned versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CANDIDATES="${{ runner.temp }}/previous-digests.txt"
+          [ -s "$CANDIDATES" ] || { echo "No previous versions to prune"; exit 0; }
+
+          REG_TOKEN=$(curl -fsSL -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/builder:pull" | jq -r .token)
+          ACCEPT="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+          MANIFEST_URL="https://ghcr.io/v2/${{ github.repository_owner }}/builder/manifests"
+
+          # every digest still referenced by a tag (manifest + children)
+          > "${{ runner.temp }}/referenced.txt"
+          for TAG in $(curl -fsSL -H "Authorization: Bearer $REG_TOKEN" \
+              "https://ghcr.io/v2/${{ github.repository_owner }}/builder/tags/list" | jq -r '.tags[]'); do
+            curl -fsSL -I -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}' >> "${{ runner.temp }}/referenced.txt"
+            curl -fsSL -H "Authorization: Bearer $REG_TOKEN" -H "Accept: $ACCEPT" "$MANIFEST_URL/$TAG" \
+              | jq -r '.manifests[]?.digest' >> "${{ runner.temp }}/referenced.txt"
+          done
+
+          gh api "orgs/${{ github.repository_owner }}/packages/container/builder/versions?per_page=100" \
+            --paginate --jq '.[] | (.id|tostring) + " " + .name' > "${{ runner.temp }}/versions.txt"
+
+          while read -r DIGEST; do
+            if grep -qxF "$DIGEST" "${{ runner.temp }}/referenced.txt"; then
+              echo "Still referenced, keeping: $DIGEST"
+              continue
+            fi
+            ID=$(awk -v d="$DIGEST" '$2==d{print $1}' "${{ runner.temp }}/versions.txt")
+            if [ -n "$ID" ]; then
+              gh api -X DELETE "orgs/${{ github.repository_owner }}/packages/container/builder/versions/$ID" --silent
+              echo "Deleted dethroned version: $DIGEST"
+            fi
+          done < "$CANDIDATES"
+
+      - name: Write job summary
+        run: |
+          digest=$(docker buildx imagetools inspect "$REGISTRY_IMAGE:${{ steps.meta.outputs.version }}" --format '{{ .Manifest.Digest }}')
+          {
+            echo "### 🐳 Image published to GHCR"
+            echo ""
+            echo "| Tag | Pull command |"
+            echo "|-----|--------------|"
+            jq -r '.tags[] | "| [`\(.)`](https://github.com/${{ github.repository }}/pkgs/container/builder) | `docker pull \(.)` |"' <<< "$DOCKER_METADATA_OUTPUT_JSON"
+            echo ""
+            echo "**Digest**: \`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # When this run pushed builder:latest, trigger the publisher to rebuild so
+      # its bundled CLI is re-pinned to this new builder commit (CLI ↔ builder
+      # lockstep — the publisher reads builder:latest's revision at build time).
+      # Requires a GitHub App with `actions: write` on the publisher repo, exposed
+      # via the PUBLISHER_DISPATCH_APP_* secrets. Skips cleanly when unset (forks).
+      # `secrets` can't be used in `if:`, so the presence check runs in a step.
+      - name: Check publisher dispatch is configured
+        id: publisher-dispatch
+        if: ${{ github.ref == 'refs/heads/develop' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && steps.branch.outputs.is_main == 'true') }}
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "PUBLISHER_DISPATCH_APP_ID not set — skipping publisher trigger."
+          fi
+
+      - name: Generate token to trigger publisher
+        id: publisher-token
+        if: ${{ steps.publisher-dispatch.outputs.enabled == 'true' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.PUBLISHER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: webstudio-publisher
+
+      - name: Trigger publisher rebuild
+        if: ${{ steps.publisher-token.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+        run: |
+          gh workflow run docker-publish.yml \
+            -R "${{ github.repository_owner }}/webstudio-publisher" \
+            --ref main
+          echo "Triggered publisher rebuild (CLI will re-pin to this builder commit)."
+
+  # For a PR raised from a branch in this repo, build the matching publisher
+  # image (its bundled CLI must come from the same fork commit as the builder —
+  # see webstudio-publisher's CLAUDE.md) so the pair can be deployed together on
+  # the Coolify test stack. Dispatches the publisher's own docker-publish with
+  # builder_ref set to this PR's branch, waits for it, then upserts a single PR
+  # comment listing both image refs.
+  #
+  # Same PUBLISHER_DISPATCH_APP_* secrets as the develop→publisher trigger above
+  # (a GitHub App with actions:write on webstudio-publisher). Skips cleanly for
+  # PRs from forks (no secrets), when the app isn't configured, or when the PR
+  # carries the `skip-publisher-test` label.
+  publisher-test-image:
+    name: Build matching publisher test image
+    runs-on: ubuntu-24.04
+    needs: merge
+    timeout-minutes: 60
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-publisher-test')
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Check publisher dispatch is configured
+        id: cfg
+        env:
+          APP_ID: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PUBLISHER_DISPATCH_APP_ID not set — skipping publisher test image."
+          fi
+
+      - name: Generate token to dispatch + watch the publisher
+        id: token
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PUBLISHER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.PUBLISHER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: webstudio-publisher
+
+      - name: Compute tags and nonce
+        id: tags
+        if: steps.token.outcome == 'success'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          SAFE=$(echo "$HEAD_REF" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//')
+          echo "branch_tag=$SAFE" >> "$GITHUB_OUTPUT"
+          echo "publisher_tag=builder-$SAFE" >> "$GITHUB_OUTPUT"
+          echo "nonce=pr${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch publisher build
+        id: dispatch
+        if: steps.tags.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+          BUILDER_REF: ${{ github.head_ref }}
+          IMAGE_TAG: ${{ steps.tags.outputs.publisher_tag }}
+          NONCE: ${{ steps.tags.outputs.nonce }}
+        run: |
+          gh workflow run docker-publish.yml -R "$REPO" --ref main \
+            -f builder_ref="$BUILDER_REF" \
+            -f image_tag="$IMAGE_TAG" \
+            -f nonce="$NONCE"
+          echo "Dispatched publisher docker-publish.yml (builder_ref=$BUILDER_REF, nonce=$NONCE)"
+
+      - name: Locate the dispatched run
+        id: find
+        if: steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+          NONCE: ${{ steps.tags.outputs.nonce }}
+        run: |
+          RUN_ID=""
+          for i in $(seq 1 20); do
+            RUN_ID=$(gh run list -R "$REPO" --workflow docker-publish.yml --event workflow_dispatch \
+              --json databaseId,displayTitle,createdAt --limit 30 \
+              --jq "[.[] | select(.displayTitle | contains(\"$NONCE\"))] | sort_by(.createdAt) | last | .databaseId // empty")
+            [ -n "$RUN_ID" ] && break
+            echo "Run not visible yet (attempt $i/20)…"
+            sleep 15
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Could not find the dispatched publisher run (nonce $NONCE)"
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$(gh run view "$RUN_ID" -R "$REPO" --json url --jq .url)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the publisher build
+        id: wait
+        if: steps.find.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository_owner }}/webstudio-publisher
+        run: gh run watch "${{ steps.find.outputs.run_id }}" -R "$REPO" --interval 30 --exit-status
+
+      - name: Upsert PR comment with test image refs
+        if: always() && steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BUILDER_TAG: ${{ steps.tags.outputs.branch_tag }}
+          PUBLISHER_TAG: ${{ steps.tags.outputs.publisher_tag }}
+          RUN_URL: ${{ steps.find.outputs.run_url }}
+          WAIT_OUTCOME: ${{ steps.wait.outcome }}
+          FIND_OUTCOME: ${{ steps.find.outcome }}
+        run: |
+          set -euo pipefail
+          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+
+          if [ "$FIND_OUTCOME" != "success" ]; then
+            PUB_STATUS="⚠️ dispatched but run could not be located"
+          else
+            case "$WAIT_OUTCOME" in
+              success) PUB_STATUS="✅ built" ;;
+              failure) PUB_STATUS="❌ build failed" ;;
+              *)       PUB_STATUS="⏳ still running" ;;
+            esac
+          fi
+          RUN_LINK=""
+          [ -n "${RUN_URL:-}" ] && RUN_LINK=" ([run]($RUN_URL))"
+
+          BODY="$RUNNER_TEMP/test-images-comment.md"
+          {
+            echo "<!-- test-images -->"
+            echo "### 🧪 Test images for this PR"
+            echo ""
+            echo "| Role | Image | Status |"
+            echo "|------|-------|--------|"
+            echo "| builder | \`ghcr.io/$OWNER_LC/builder:$BUILDER_TAG\` | ✅ built |"
+            echo "| publisher | \`ghcr.io/$OWNER_LC/webstudio-publisher:$PUBLISHER_TAG\` | ${PUB_STATUS}${RUN_LINK} |"
+            echo ""
+            echo "Point \`BUILDER_IMAGE\` / \`PUBLISHER_IMAGE\` on the Coolify test stack at these two tags — they are built from the same fork commit and must be deployed together."
+            echo ""
+            echo "<sub>Updated for \`$HEAD_SHA\` · $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
+          } > "$BODY"
+
+          CID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq 'map(select(.user.type == "Bot" and (.body | contains("<!-- test-images -->")))) | first | .id // empty')
+
+          if [ -n "$CID" ]; then
+            jq -Rs '{body: .}' "$BODY" | gh api -X PATCH "repos/$REPO/issues/comments/$CID" --input - >/dev/null
+            echo "Updated comment $CID"
+          else
+            jq -Rs '{body: .}' "$BODY" | gh api -X POST "repos/$REPO/issues/$PR/comments" --input - >/dev/null
+            echo "Created comment"
+          fi
+
+      - name: Reflect publisher build failure on this job
+        if: steps.wait.outcome == 'failure'
+        run: |
+          echo "::error::Publisher test image build did not succeed — see the comment on the PR."
+          exit 1
