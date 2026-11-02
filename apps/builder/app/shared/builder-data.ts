@@ -24,7 +24,15 @@ export type BuilderData = Omit<WebstudioData, "assetFolders"> & {
 type LoadDataOutput = inferRouterOutputs<AppRouter>["build"]["loadData"];
 
 export type LoadedBuilderData = BuilderData &
-  Pick<LoadDataOutput, "id" | "version" | "publisherHost" | "projectId">;
+  Pick<
+    LoadDataOutput,
+    | "id"
+    | "version"
+    | "publisherHost"
+    | "publisherHostConfigured"
+    | "secureCookie"
+    | "projectId"
+  >;
 
 export const getBuilderData = (): BuilderData => {
   const data = readBuilderStateStores();
@@ -75,6 +83,8 @@ export const loadBuilderData = async ({
       projectId: data.projectId,
       project: data.project,
       publisherHost: data.publisherHost,
+      publisherHostConfigured: data.publisherHostConfigured,
+      secureCookie: data.secureCookie,
       assets: hydrateIdMap(data.assets),
       assetFolders: hydrateIdMap(data.assetFolders),
       instances: hydrateIdMap(data.instances),
