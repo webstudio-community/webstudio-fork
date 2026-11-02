@@ -15,6 +15,7 @@ every sync:
 
 > **Maintainers**: new PRs are squash-merged on `develop`, then folded into the
 > relevant patch (or added as a new one, updating this list) at the next
-> regroup (see the monthly regroup). When a change is accepted upstream, drop it from the series
+> regroup (automatic once `develop` exceeds 18 patch commits; each PR names its
+> patch in a `Patch:` line). When a change is accepted upstream, drop it from the series
 > and from this list. History before the 2026-07-16 squash is preserved under
 > the `backup/develop-pre-squash` tag.
