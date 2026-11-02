@@ -98,6 +98,12 @@ export const createFramework = async (
 
   const { components, metas, buildHooks } = createFrameworkComponentRegistry();
 
+  // The static output has no action handler: the generated site ships a Webhook
+  // Form that POSTs from the browser.
+  if (components.ResourceForm !== undefined) {
+    components.ResourceForm = "../webhook-form:Form";
+  }
+
   return {
     metas,
     components,

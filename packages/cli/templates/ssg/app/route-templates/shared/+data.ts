@@ -76,11 +76,14 @@ export const data = async (pageContext: PageContextServer) => {
     )
   );
   const pageMeta = getPageMeta({ system, resources });
+  // Webhook Form posts to it from the browser.
+  const actionResources = Object.fromEntries(getResources({ system }).action);
 
   return {
     url: url.href,
     system,
     resources,
+    actionResources,
     pageMeta,
   } satisfies PageContextServer["data"];
 };
