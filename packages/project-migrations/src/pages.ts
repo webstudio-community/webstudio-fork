@@ -197,7 +197,13 @@ export const migratePages = (pagesData: unknown): Pages => {
     }
     const normalizedPages = {
       ...currentPages,
-      pageTemplates: currentPages.pageTemplates ?? new Map(),
+      // May be deserialized as a plain object.
+      pageTemplates:
+        currentPages.pageTemplates instanceof Map
+          ? currentPages.pageTemplates
+          : currentPages.pageTemplates !== undefined
+            ? toMap<PageTemplate>(currentPages.pageTemplates)
+            : new Map(),
       folders: normalizeFolderChildren(
         currentPages.pages,
         currentPages.folders,
