@@ -1,5 +1,5 @@
 import path, { resolve } from "node:path";
-import { defineConfig, loadEnv, type CorsOptions } from "vite";
+import { defineConfig, type CorsOptions } from "vite";
 import { vitePlugin as remix } from "@remix-run/dev";
 import { vercelPreset } from "@vercel/remix/vite";
 import type { IncomingMessage } from "node:http";
@@ -32,16 +32,11 @@ export default defineConfig(({ mode }) => {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   }
 
-  const env = loadEnv(mode, __dirname, "");
-  const multiplayerRelayProxyTarget =
-    process.env.COLLAB_RELAY_PROXY_TARGET ??
-    env.COLLAB_RELAY_PROXY_TARGET ??
-    "http://127.0.0.1:1999";
-
   return {
     plugins: [
       remix({
-        presets: [vercelPreset()],
+        // vercelPreset() switches to Vercel's serverless output; Docker needs the standard one.
+        presets: process.env.VERCEL ? [vercelPreset()] : [],
         future: {
           v3_lazyRouteDiscovery: false,
           v3_relativeSplatPath: false,
@@ -136,18 +131,22 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // Service-to-service OAuth token call requires a specified host for the wstd.dev domain
-      host: "wstd.dev",
-      proxy: {
-        "/collab-relay": {
-          target: multiplayerRelayProxyTarget,
-          ws: true,
-        },
-      },
-      https: {
-        key: readFileSync("../../https/privkey.pem"),
-        cert: readFileSync("../../https/fullchain.pem"),
-      },
+      // In Docker dev, bind on all interfaces.
+      host: process.env.DOCKER_DEV ? "0.0.0.0" : "wstd.dev",
+      // Needed for SSL
+      proxy: {},
+
+      https: (() => {
+        try {
+          return {
+            key: readFileSync("../../https/privkey.pem"),
+            cert: readFileSync("../../https/fullchain.pem"),
+          };
+        } catch {
+          // No SSL certs (Docker build, CI)
+          return undefined;
+        }
+      })(),
       cors: ((
         req: IncomingMessage,
         callback: (error: Error | null, options: CorsOptions | null) => void

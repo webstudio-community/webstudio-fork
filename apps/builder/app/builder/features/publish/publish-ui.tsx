@@ -55,6 +55,8 @@ import {
 } from "~/shared/nano-states";
 import {
   $publisherHost,
+  $publisherHostConfigured,
+  $secureCookie,
   $project,
   $dataSources,
   $instances,
@@ -178,6 +180,7 @@ const ChangeProjectDomain = ({
   const stagingUsername = useStore($stagingUsername);
   const stagingPassword = useStore($stagingPassword);
   const publisherHost = useStore($publisherHost);
+  const secureCookie = useStore($secureCookie);
 
   const [domain, setDomain] = useState(project.domain);
   const [error, setError] = useState<string>();
@@ -189,6 +192,7 @@ const ChangeProjectDomain = ({
     pathname: currentSystem.pathname,
     username: stagingUsername,
     password: stagingPassword,
+    secure: secureCookie,
   });
 
   const updateProjectDomain = async () => {
@@ -820,6 +824,7 @@ export const Content = (props: {
   flow: PublishUiState;
 }) => {
   const restrictedFeatures = useStore($restrictedFeatures);
+  const publisherHostConfigured = useStore($publisherHostConfigured);
   const [newDomains, setNewDomains] = useState(new Set<string>());
   const [isAddingDomain, setIsAddingDomain] = useState(false);
 
@@ -924,19 +929,36 @@ export const Content = (props: {
       <form>
         <ScrollArea>
           <RadioGroup name="publishDomain">
-            <ChangeProjectDomain
-              refresh={refreshProject}
-              project={project}
-              validatedDomains={props.flow.validatedDomains}
-              onOpenReport={(domain) =>
-                props.flow.openSiteReport(domain, "publish")
-              }
-              latestPublish={props.flow.publishes.find(
-                (item) =>
-                  item.target === "site" &&
-                  item.domains.includes(project.domain)
-              )}
-            />
+            {publisherHostConfigured ? (
+              <ChangeProjectDomain
+                refresh={refreshProject}
+                project={project}
+                validatedDomains={props.flow.validatedDomains}
+                onOpenReport={(domain) =>
+                  props.flow.openSiteReport(domain, "publish")
+                }
+                latestPublish={props.flow.publishes.find(
+                  (item) =>
+                    item.target === "site" &&
+                    item.domains.includes(project.domain)
+                )}
+              />
+            ) : (
+              <PanelBanner variant="warning">
+                <Text>
+                  PUBLISHER_HOST is not configured, so this project has no
+                  built-in test-site domain. Set it in your environment (e.g.{" "}
+                  <Text variant="mono" inline>
+                    wstdwork.example.com
+                  </Text>{" "}
+                  or{" "}
+                  <Text variant="mono" inline>
+                    wstdwork.localhost
+                  </Text>
+                  ) to get one.
+                </Text>
+              </PanelBanner>
+            )}
 
             <Domains
               newDomains={newDomains}

@@ -11,7 +11,8 @@ import { createApp, toWebHandler } from "h3";
 const domains = env.DOMAINS?.split(/\s*,\s*/) ?? [];
 
 const ipx = createIPX({
-  storage: ipxFSStorage({ dir: "./public" }),
+  // Vite moves public/ into build/client/.
+  storage: ipxFSStorage({ dir: "./build/client" }),
   httpStorage: ipxHttpStorage({ domains }),
 });
 

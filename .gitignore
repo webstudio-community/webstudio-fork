@@ -76,3 +76,6 @@ packages/prisma-client/src/__generated__
 # local agent instructions
 AGENTS.md
 agents.md
+
+# local pnpm config (Windows: script-shell=C:\Program Files\Git\bin\bash.exe)
+/.npmrc

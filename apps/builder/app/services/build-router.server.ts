@@ -274,6 +274,8 @@ export const loadBuilderDataByProjectId = async (
     ...assetData,
     project,
     publisherHost: env.PUBLISHER_HOST,
+    publisherHostConfigured: env.PUBLISHER_HOST_CONFIGURED,
+    secureCookie: env.SECURE_COOKIE,
   };
 };
 
