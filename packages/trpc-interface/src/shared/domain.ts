@@ -1,7 +1,7 @@
 /**
- * Localhost implementation of the dashboard trpc interface
- * It's playground, and just emulates real 3rd party apis
+  * Self-hosting domain router: verifies TXT ownership records with real DNS lookups.
  */
+import { resolveTxt } from "node:dns/promises";
 import { z } from "zod";
 import { router, procedure } from "./trpc";
 
@@ -16,42 +16,39 @@ const createOutput = <T extends z.ZodType>(data: T) =>
 
 declare global {
   // eslint-disable-next-line no-var
-  var dnsTxtEntries: Map<string, string>;
-  // eslint-disable-next-line no-var
-  var domainStates: Map<string, "active" | "pending" | "error">;
+  var verifiedDomains: Map<string, boolean>;
 }
 
-// Remix purges require module cache on every request in development,
-// this is the way to persist data between requests in development
-globalThis.dnsTxtEntries =
-  globalThis.dnsTxtEntries ?? new Map<string, string>();
-globalThis.domainStates =
-  globalThis.domainStates ?? new Map<string, "active" | "pending">();
+// Remix purges the require cache in dev.
+globalThis.verifiedDomains =
+  globalThis.verifiedDomains ?? new Map<string, boolean>();
 
 export const domainRouter = router({
   /**
-   * Verify TXT record and add custom domain entry to DNS
+      * Expects a TXT record at _webstudio-challenge.<domain>.
    */
   create: procedure
     .input(createInput)
     .output(createOutput(z.optional(z.undefined())))
     .mutation(async ({ input }) => {
-      const record = dnsTxtEntries.get(input.domain);
-      if (record !== input.txtRecord) {
-        // Return an error once then update the record
-        dnsTxtEntries.set(input.domain, input.txtRecord);
-
+      const txtHost = `_webstudio_is.${input.domain}`;
+      try {
+        const records = await resolveTxt(txtHost);
+        const flat = records.flat();
+        if (flat.includes(input.txtRecord) === false) {
+          return {
+            success: false,
+            error: `TXT record mismatch at ${txtHost}. Expected "${input.txtRecord}" but got: ${flat.join(", ") || "nothing"}`,
+          };
+        }
+        verifiedDomains.set(input.domain, true);
+        return { success: true };
+      } catch (error) {
         return {
           success: false,
-          error: `TXT record does not match, expected "${
-            input.txtRecord
-          }" but got "${record ?? "undefined"}"`,
+          error: `DNS lookup failed for ${txtHost}: ${error instanceof Error ? error.message : "unknown error"}. Make sure the TXT record has propagated.`,
         };
       }
-
-      domainStates.set(input.domain, "pending");
-
-      return { success: true };
     }),
 
   refresh: procedure
@@ -64,12 +61,12 @@ export const domainRouter = router({
     .input(input)
     .output(createOutput(z.optional(z.undefined())))
     .mutation(async ({ input }) => {
-      domainStates.delete(input.domain);
-      dnsTxtEntries.delete(input.domain);
+      verifiedDomains.delete(input.domain);
       return { success: true };
     }),
+
   /**
-   * Get status of verified domain
+      * Re-checks DNS for domains not in the verified set (e.g. after a restart).
    */
   getStatus: procedure
     .input(input)
@@ -82,43 +79,18 @@ export const domainRouter = router({
       )
     )
     .query(async ({ input }) => {
-      const domainState = domainStates.get(input.domain);
-
-      if (domainState === undefined) {
-        domainStates.set(input.domain, "pending");
-
-        return {
-          success: false,
-          error: `Domain ${input.domain} is not active`,
-        };
-      }
-
-      if (domainState === "active") {
-        setTimeout(() => {
-          domainStates.set(input.domain, "error");
-        });
-      }
-
-      if (domainState === "pending" || domainState === "error") {
-        setTimeout(() => {
-          domainStates.set(input.domain, "active");
-        }, 5000);
-      }
-
-      if (domainState === "error") {
+      if (verifiedDomains.get(input.domain) === true) {
         return {
           success: true,
-          data: {
-            status: "error",
-            error: "Domain cname verification failed",
-          },
+          data: { status: "active" as const },
         };
       }
 
       return {
         success: true,
         data: {
-          status: domainState,
+          status: "error" as const,
+          error: `Domain ${input.domain} has not been verified. Please complete the TXT verification step first.`,
         },
       };
     }),

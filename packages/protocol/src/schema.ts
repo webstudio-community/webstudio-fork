@@ -84,6 +84,7 @@ export const publishedProjectBundle = projectBundle.extend({
   projectDomain: z.string(),
   projectTitle: z.string(),
   assetIndex: contentArtifactV1.optional(),
+  customDomains: z.array(z.string()).optional(),
 });
 export type PublishedProjectBundle = z.infer<typeof publishedProjectBundle>;
 
@@ -177,7 +178,11 @@ export const restorePointPatchTransaction: z.ZodType<
   unknown
 > = internalRestorePointPatchTransactionSchema;
 
-export const bundleVersion = createContractVersion(publishedProjectBundle, [
+// customDomains is fork-only publisher metadata: excluding it keeps the hash
+// equal to the upstream CLI's.
+const cliBundleContract = publishedProjectBundle.omit({ customDomains: true });
+
+export const bundleVersion = createContractVersion(cliBundleContract, [
   wsAuthConfig,
 ]);
 
