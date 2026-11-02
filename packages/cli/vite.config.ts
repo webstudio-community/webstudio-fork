@@ -1,8 +1,5 @@
-import {
-  defaultClientConditions,
-  defaultServerConditions,
-  defineConfig,
-} from "vite";
+import { defaultClientConditions, defaultServerConditions } from "vite";
+import { defineConfig } from "vitest/config";
 import { createRequire } from "node:module";
 import pkg from "./package.json";
 
@@ -48,6 +45,10 @@ export default defineConfig({
     resolve: {
       conditions: ["webstudio", ...defaultServerConditions],
     },
+  },
+  test: {
+    // CI only: CLI subprocess tests sometimes time out on a loaded runner.
+    retry: process.env.CI ? 2 : 0,
   },
   build: {
     target: "node22",

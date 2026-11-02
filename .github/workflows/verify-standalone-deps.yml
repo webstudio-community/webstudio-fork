@@ -1,0 +1,45 @@
+name: Verify standalone deploy
+
+# Checks that every bare import of the compiled server bundle resolves from the
+# `pnpm --prod deploy` output: a transitive-only dependency gets no top-level
+# symlink and crashes at runtime with ERR_MODULE_NOT_FOUND.
+# docker-publish.yml only publishes after this passes on develop.
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  workflow_call:
+
+jobs:
+  verify:
+    name: Verify standalone deploy resolves all runtime deps
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build up to the standalone deploy stage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/builder/Dockerfile
+          target: builder
+          tags: verify-standalone-deps:local
+          load: true
+          cache-from: |
+            type=gha,scope=verify-standalone-deps
+            type=gha,scope=develop-linux-amd64
+          cache-to: type=gha,mode=max,scope=verify-standalone-deps
+
+      - name: Verify bundled server imports resolve from the deployed node_modules
+        run: |
+          docker run --rm verify-standalone-deps:local \
+            node scripts/verify-standalone-deps.mjs \
+              apps/builder/build/server \
+              /standalone/node_modules
