@@ -13,6 +13,10 @@ const environment = z.object({
   // Secret session key, context encode
   AUTH_SECRET: z.string().optional(),
 
+  // Local plain-HTTP testing only: __Host- cookies need Secure, which browsers
+  // refuse over http://.
+  ALLOW_INSECURE_COOKIES: z.string().optional(),
+
   // DEPLOYMENT_ENVIRONMENT development | preview | production
   DEPLOYMENT_ENVIRONMENT: z
     .enum(["development", "preview", "production"])
@@ -93,6 +97,7 @@ const rawEnv = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   AUTH_SECRET: process.env.AUTH_SECRET,
+  ALLOW_INSECURE_COOKIES: process.env.ALLOW_INSECURE_COOKIES,
   DEPLOYMENT_ENVIRONMENT: process.env.DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_URL: process.env.DEPLOYMENT_URL,
   TRPC_SERVER_URL: process.env.TRPC_SERVER_URL,
@@ -136,7 +141,10 @@ if (!parseResult.success) {
 
 const env = {
   ...parseResult.data,
-  SECURE_COOKIE: true,
+  SECURE_COOKIE: parseResult.data.ALLOW_INSECURE_COOKIES !== "true",
+  // PUBLISHER_HOST always has a value; this tells whether it was set.
+  PUBLISHER_HOST_CONFIGURED:
+    rawEnv.PUBLISHER_HOST !== undefined && rawEnv.PUBLISHER_HOST.length > 0,
 };
 
 // Reject default OAuth secrets in production.
@@ -149,6 +157,19 @@ if (
     "AUTH_WS_CLIENT_ID and AUTH_WS_CLIENT_SECRET must be set in production"
   );
 }
+
+if (env.SECURE_COOKIE === false) {
+  if (env.DEPLOYMENT_ENVIRONMENT === "production") {
+    throw new Error("ALLOW_INSECURE_COOKIES must not be set in production");
+  }
+  console.warn(
+    "ALLOW_INSECURE_COOKIES is enabled: session cookies are not marked Secure. " +
+      "This is only meant for local testing over plain HTTP — never use it on a real deployment."
+  );
+}
+
+export const secureCookieName = (name: string) =>
+  env.SECURE_COOKIE ? `__Host-${name}` : name;
 
 export type ServerEnv = typeof env;
 
