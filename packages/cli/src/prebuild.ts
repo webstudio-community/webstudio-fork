@@ -862,7 +862,11 @@ const copyTemplates = async (template: string) => {
 };
 
 const importFrom = (importee: string, importer: string) => {
-  return relative(dirname(importer), importee).replaceAll("\\", "/");
+  const path = relative(dirname(importer), importee).replaceAll("\\", "/");
+  // A relative path that stays within the importer's own directory (no `../`)
+  // comes back from `relative()` without a leading `./`, which Node's ESM
+  // resolution treats as a bare package specifier instead of a relative one.
+  return path.startsWith(".") ? path : `./${path}`;
 };
 
 const npmrc = `force=true
@@ -2110,6 +2114,7 @@ export const createManagedFormResourceFetch = ({ request, context, projectDomain
     })) {
       const content = template
         .replaceAll("__CONSTANTS__", importFrom("./app/constants.mjs", file))
+        .replaceAll("__WEBHOOK_FORM__", importFrom("./app/webhook-form", file))
         .replaceAll("__SITEMAP__", importFrom(sitemapModule, file))
         .replaceAll(
           "__ASSETS__",

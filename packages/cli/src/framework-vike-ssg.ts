@@ -64,6 +64,11 @@ export const createFramework = async (
       )
     );
 
+  const sitemapPluginTemplate = await readFile(
+    join(templatesDirectory, "sitemap-plugin.ts"),
+    "utf8"
+  );
+
   const getRouteTemplates = (
     type: "html" | "text",
     pagePath: string,
@@ -93,6 +98,16 @@ export const createFramework = async (
 
   const { components, metas, buildHooks } = createFrameworkComponentRegistry();
 
+  // SSG output has no server-side action handler, so Webhook Form must resolve
+  // its action resource from context and POST from the browser. That
+  // implementation ships with the generated site (app/webhook-form.tsx), not
+  // the published @webstudio-is/sdk-components-react (upstream's plain
+  // server-submit <form>). Every generated component module lives in
+  // app/__generated__/, so a fixed "../webhook-form" specifier resolves.
+  if (components.ResourceForm !== undefined) {
+    components.ResourceForm = "../webhook-form:Form";
+  }
+
   return {
     metas,
     components,
@@ -116,6 +131,13 @@ export const createFramework = async (
     xml: () => [],
     text: ({ pagePath }) =>
       isPathnamePattern(pagePath) ? [] : getRouteTemplates("text", pagePath),
-    defaultSitemap: () => [],
+    // vike prerenders a route to <route>/index.html, so /sitemap.xml cannot be
+    // expressed as a page. Emit it from the client build instead.
+    defaultSitemap: () => [
+      {
+        file: join("app", "sitemap-plugin.ts"),
+        template: sitemapPluginTemplate,
+      },
+    ],
   };
 };

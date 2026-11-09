@@ -3,7 +3,7 @@ import { createRequestHandler as createExpressRequestHandler } from "@remix-run/
 import type { ServerBuild } from "@remix-run/server-runtime";
 import express from "express";
 import { matchRoutes, type RouteObject } from "react-router-dom";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import https from "node:https";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -15,14 +15,20 @@ const start = async () => {
   // the dedicated test server; production uses the public-address guard.
   process.env.E2E_ALLOW_LOCAL_RESOURCE_URLS = "true";
   const serverDirectory = path.resolve("build/server");
-  const builds = await Promise.all(
-    readdirSync(serverDirectory, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const filename = path.join(serverDirectory, entry.name, "index.js");
-        return (await import(pathToFileURL(filename).href)) as ServerBuild;
-      })
-  );
+
+  // Standard Vite build (no vercelPreset): a single index.js at the root of
+  // build/server/, rather than one bundle per route-specific Vercel config.
+  const directEntry = path.join(serverDirectory, "index.js");
+  const builds = existsSync(directEntry)
+    ? [(await import(pathToFileURL(directEntry).href)) as ServerBuild]
+    : await Promise.all(
+        readdirSync(serverDirectory, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map(async (entry) => {
+            const filename = path.join(serverDirectory, entry.name, "index.js");
+            return (await import(pathToFileURL(filename).href)) as ServerBuild;
+          })
+      );
   const [build] = builds;
   if (build === undefined) {
     throw new Error(`Could not find server build in ${serverDirectory}`);

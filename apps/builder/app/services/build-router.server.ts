@@ -269,6 +269,9 @@ export const loadBuilderDataByProjectId = async (
     ...assetData,
     project,
     publisherHost: env.PUBLISHER_HOST,
+    publisherHostConfigured: env.PUBLISHER_HOST_CONFIGURED,
+    selfHostedPublisherConfigured: env.SELF_HOSTED_PUBLISHER_CONFIGURED,
+    secureCookie: env.SECURE_COOKIE,
   };
 };
 
@@ -296,6 +299,27 @@ export const buildRouter = router({
     .input(buildBundleInput)
     .query(async ({ ctx, input }) => {
       return await loadProjectBundleByBuildIdHandler(ctx, input);
+    }),
+
+  updatePublishStatus: procedure
+    .input(
+      z.object({
+        buildId: z.string(),
+        publishStatus: z.enum(["PUBLISHED", "FAILED"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.authorization.type !== "service") {
+        throw new AuthorizationError("Service calls only");
+      }
+      const result = await ctx.postgrest.client
+        .from("Build")
+        .update({ publishStatus: input.publishStatus })
+        .eq("id", input.buildId);
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      return { success: true };
     }),
 
   loadProjectBundleByProjectId: procedure

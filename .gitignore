@@ -42,6 +42,10 @@ yarn-error.log*
 # data
 /data
 .webstudio
+# ...but keep the tracked fixture snapshots (checked by packages/protocol
+# fixtures.test.ts); without this the pre-commit hook chokes on re-stamps.
+!fixtures/*/.webstudio/
+!fixtures/*/.webstudio/data.json
 *.db
 *.db-journal
 
@@ -76,3 +80,6 @@ packages/prisma-client/src/__generated__
 # local agent instructions
 AGENTS.md
 agents.md
+
+# local pnpm config (Windows: script-shell=C:\Program Files\Git\bin\bash.exe)
+/.npmrc

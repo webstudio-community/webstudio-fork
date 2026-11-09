@@ -3,6 +3,8 @@ import { z } from "zod";
 const environment = z.object({
   // Authentication
   DEV_LOGIN: z.string().optional(),
+  DEV_LOGIN_EMAIL: z.string().optional(),
+  USER_PLAN: z.string().optional(),
   GH_CLIENT_ID: z.string().optional(),
   GH_CLIENT_SECRET: z.string().optional(),
   GITHUB_ISSUE_REPORT_APP_ID: z.string().optional(),
@@ -12,6 +14,12 @@ const environment = z.object({
 
   // Secret session key, context encode
   AUTH_SECRET: z.string().optional(),
+
+  // Opt-in escape hatch for local testing over plain HTTP (no TLS in front).
+  // __Host- prefixed cookies require the Secure attribute, so browsers silently
+  // refuse to set them over http://, breaking dev login and OAuth. Never set
+  // this in production.
+  ALLOW_INSECURE_COOKIES: z.string().optional(),
 
   // DEPLOYMENT_ENVIRONMENT development | preview | production
   DEPLOYMENT_ENVIRONMENT: z
@@ -82,10 +90,16 @@ const environment = z.object({
   VERCEL: z.string().optional(),
   VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
   VERCEL_URL: z.string().optional(),
+
+  // Set by self-hosters to route publishes to their self-hosted publisher
+  // service instead of the managed providers (see packages/trpc-interface).
+  SELF_HOSTED_PUBLISHER_URL: z.string().url().optional(),
 });
 
 const rawEnv = {
   DEV_LOGIN: process.env.DEV_LOGIN,
+  DEV_LOGIN_EMAIL: process.env.DEV_LOGIN_EMAIL,
+  USER_PLAN: process.env.USER_PLAN,
   GH_CLIENT_ID: process.env.GH_CLIENT_ID,
   GH_CLIENT_SECRET: process.env.GH_CLIENT_SECRET,
   GITHUB_ISSUE_REPORT_APP_ID: process.env.GITHUB_ISSUE_REPORT_APP_ID,
@@ -93,6 +107,7 @@ const rawEnv = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   AUTH_SECRET: process.env.AUTH_SECRET,
+  ALLOW_INSECURE_COOKIES: process.env.ALLOW_INSECURE_COOKIES,
   DEPLOYMENT_ENVIRONMENT: process.env.DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_URL: process.env.DEPLOYMENT_URL,
   TRPC_SERVER_URL: process.env.TRPC_SERVER_URL,
@@ -123,6 +138,7 @@ const rawEnv = {
   VERCEL: process.env.VERCEL,
   VERCEL_ENV: process.env.VERCEL_ENV,
   VERCEL_URL: process.env.VERCEL_URL,
+  SELF_HOSTED_PUBLISHER_URL: process.env.SELF_HOSTED_PUBLISHER_URL,
 };
 
 const parseResult = environment.safeParse(rawEnv);
@@ -136,7 +152,16 @@ if (!parseResult.success) {
 
 const env = {
   ...parseResult.data,
-  SECURE_COOKIE: true,
+  SECURE_COOKIE: parseResult.data.ALLOW_INSECURE_COOKIES !== "true",
+  // PUBLISHER_HOST always resolves to a value (defaults to "wstd.work"), so this
+  // tracks whether a self-hoster actually set it, to warn them otherwise.
+  PUBLISHER_HOST_CONFIGURED:
+    rawEnv.PUBLISHER_HOST !== undefined && rawEnv.PUBLISHER_HOST.length > 0,
+  // A self-hosted publish builds a Docker image on the publisher host, which
+  // takes several minutes even on a fast machine — much longer than the
+  // managed providers this client-side publish-status polling was tuned for.
+  SELF_HOSTED_PUBLISHER_CONFIGURED:
+    rawEnv.SELF_HOSTED_PUBLISHER_URL !== undefined,
 };
 
 // Reject default OAuth secrets in production.
@@ -149,6 +174,21 @@ if (
     "AUTH_WS_CLIENT_ID and AUTH_WS_CLIENT_SECRET must be set in production"
   );
 }
+
+if (env.SECURE_COOKIE === false) {
+  if (env.DEPLOYMENT_ENVIRONMENT === "production") {
+    throw new Error("ALLOW_INSECURE_COOKIES must not be set in production");
+  }
+  console.warn(
+    "ALLOW_INSECURE_COOKIES is enabled: session cookies are not marked Secure. " +
+      "This is only meant for local testing over plain HTTP — never use it on a real deployment."
+  );
+}
+
+// __Host- prefixed cookies require the Secure attribute; browsers reject them
+// otherwise, so the prefix must be dropped whenever SECURE_COOKIE is false.
+export const secureCookieName = (name: string) =>
+  env.SECURE_COOKIE ? `__Host-${name}` : name;
 
 export type ServerEnv = typeof env;
 
