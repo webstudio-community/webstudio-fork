@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import {
   connect,
   mergeServerConfig,
+  resolveDefaultServerCommand,
   verifyProjectAccess,
   type ConnectDependencies,
 } from "./connect";
@@ -14,6 +15,7 @@ const createDependencies = (
   files: Record<string, string> = {}
 ): ConnectDependencies => ({
   createFolderIfNotExists: vi.fn(async () => undefined),
+  resolveDefaultServerCommand: vi.fn(() => resolveDefaultServerCommand()),
   isFileExists: vi.fn(async (path: string) => {
     const relativePath = path.startsWith(cwd())
       ? path.slice(cwd().length + 1)
@@ -396,5 +398,66 @@ test("project access verification classifies local, authorization, and reachabil
   ).resolves.toEqual({
     ok: false,
     message: expect.stringContaining("could not verify project access"),
+  });
+});
+
+test("defaults to the npm CLI for a regular CLI version", async () => {
+  const resolveConnection = vi.fn(async () => ({
+    origin: "https://builder.example.com",
+  }));
+
+  await expect(
+    resolveDefaultServerCommand({ version: "0.300.0", resolveConnection })
+  ).resolves.toBe("npx -y webstudio@latest mcp");
+  expect(resolveConnection).not.toHaveBeenCalled();
+});
+
+test("registers the linked instance's own CLI when served by a self-hosted instance", async () => {
+  await expect(
+    resolveDefaultServerCommand({
+      version: "0.300.0-fork-abc1234",
+      resolveConnection: async () => ({
+        origin: "https://builder.example.com",
+      }),
+    })
+  ).resolves.toBe(
+    "npx -y --@webstudio-community:registry=https://builder.example.com/npm/ @webstudio-community/cli mcp"
+  );
+});
+
+test("asks to link the project first when an instance-served CLI has no origin", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => {});
+
+  await expect(
+    resolveDefaultServerCommand({
+      version: "0.300.0-fork-abc1234",
+      resolveConnection: async () => {
+        throw new Error("not initialized");
+      },
+    })
+  ).rejects.toBeInstanceOf(HandledCliError);
+  expect(error).toHaveBeenCalledWith(expect.stringContaining("init --link"));
+  error.mockRestore();
+});
+
+test("writes the resolved default command into the client config", async () => {
+  const dependencies = createDependencies(linkedProject);
+  dependencies.resolveDefaultServerCommand = vi.fn(
+    async () =>
+      "npx -y --@webstudio-community:registry=https://builder.example.com/npm/ @webstudio-community/cli mcp"
+  );
+  vi.spyOn(log, "success").mockImplementation(() => {});
+
+  await connect({ client: "claude", print: false }, dependencies);
+
+  const [, content] = vi.mocked(dependencies.writeFileAtomic).mock.calls[0];
+  expect(JSON.parse(String(content)).mcpServers.webstudio).toEqual({
+    command: "npx",
+    args: [
+      "-y",
+      "--@webstudio-community:registry=https://builder.example.com/npm/",
+      "@webstudio-community/cli",
+      "mcp",
+    ],
   });
 });

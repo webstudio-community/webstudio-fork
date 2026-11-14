@@ -60,12 +60,3 @@ test("never recommends an npm release to a CLI served by a self-hosted instance"
   ).resolves.toBeUndefined();
   expect(request).not.toHaveBeenCalled();
 });
-
-test("recognizes instance-served CLI versions", () => {
-  expect(isInstanceServedCliVersion("0.300.0-fork-abc1234")).toBe(true);
-  expect(isInstanceServedCliVersion("0.300.0-fork-local20261114203000")).toBe(
-    true
-  );
-  expect(isInstanceServedCliVersion("0.300.0")).toBe(false);
-  expect(isInstanceServedCliVersion("0.300.0-beta.1")).toBe(false);
-});

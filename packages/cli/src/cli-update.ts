@@ -1,18 +1,9 @@
 import semver from "semver";
+import { isInstanceServedCliVersion } from "./instance-cli";
 import { isPlainRecord } from "./type-utils";
 
 const latestPackageUrl = "https://registry.npmjs.org/webstudio/latest";
 const requestTimeoutMs = 1_500;
-
-// The self-hosted builder image packs and serves its own CLI, stamped
-// `<upstream version>-fork-<commit>` (see scripts/pack-instance-cli.mjs).
-// That CLI must stay in lockstep with the instance it came from, so an npm
-// `webstudio` release is never an update for it: recommending one would point
-// users back to an upstream CLI that the instance's API may reject.
-const instanceServedVersionPattern = /-fork-[0-9a-z]+$/;
-
-export const isInstanceServedCliVersion = (version: string) =>
-  instanceServedVersionPattern.test(version);
 
 export type CliUpdate = {
   currentVersion: string;
@@ -28,6 +19,8 @@ export const checkForCliUpdate = async ({
 }): Promise<CliUpdate | undefined> => {
   if (
     currentVersion === "0.0.0-webstudio-version" ||
+    // An npm `webstudio` release is never an update for an instance-served
+    // CLI: recommending it would point users back to an incompatible CLI.
     isInstanceServedCliVersion(currentVersion) ||
     semver.valid(currentVersion) === null
   ) {
