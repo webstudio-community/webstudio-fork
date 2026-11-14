@@ -110,7 +110,8 @@ export const handleInstanceCliRegistryRequest = async (
 
   if (path === `-/${meta.filename}`) {
     const tarball = await readFile(join(directory, meta.filename));
-    return new Response(tarball, {
+    // Node's Buffer is typed over ArrayBufferLike, which BodyInit rejects.
+    return new Response(new Uint8Array(tarball), {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Length": String(tarball.byteLength),
