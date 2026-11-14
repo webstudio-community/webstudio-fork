@@ -51,3 +51,12 @@ test("skips the registry check for a development build without a release version
   ).resolves.toBeUndefined();
   expect(request).not.toHaveBeenCalled();
 });
+
+test("never recommends an npm release to a CLI served by a self-hosted instance", async () => {
+  const request = vi.fn(async () => Response.json({ version: "0.301.0" }));
+
+  await expect(
+    checkForCliUpdate({ currentVersion: "0.300.0-fork-abc1234", request })
+  ).resolves.toBeUndefined();
+  expect(request).not.toHaveBeenCalled();
+});

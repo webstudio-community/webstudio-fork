@@ -210,9 +210,9 @@ walks the whole _transitive_ needs graph, not just direct `needs:`, so a check
 job skipped by design on non-push events silently skipped every job downstream
 of it too. Since `workflow_run` fires after develop's tip may have already
 moved past the verified commit, the `build` job explicitly checks out
-`github.event.workflow_run.head_sha` rather than the default (which would grab
-develop's current tip) — otherwise a push landing in that gap could slip an
-unverified commit into the published image.
+`github.event.workflow_run.head_sha` (via its job-level `SOURCE_SHA` env) rather
+than the default (which would grab develop's current tip) — otherwise a push
+landing in that gap could slip an unverified commit into the published image.
 
 ### Cross-repo test images (builder ↔ publisher lockstep)
 
@@ -226,7 +226,9 @@ run via the nonce in its run name, waits for it, then upserts one PR comment
 `builder:<branch>` and `webstudio-publisher:builder-<branch>` — to plug into
 `BUILDER_IMAGE` / `PUBLISHER_IMAGE` on the Coolify test stack. Re-runs edit the
 same comment. `docker-cleanup.yml` dispatches the publisher's cleanup for
-`builder-<branch>` when the PR closes. All of it needs the
+`builder-<branch>` when the PR closes. On PRs the builder image is built from
+the PR head sha (`SOURCE_SHA`), not GitHub's ephemeral merge commit, so it
+matches the publisher's branch-head CLI build. All of it needs the
 `PUBLISHER_DISPATCH_APP_*` secrets (the same GitHub App the develop→publisher
 trigger uses) and no-ops for forked PRs; add the `skip-publisher-test` label to
 opt a PR out.
