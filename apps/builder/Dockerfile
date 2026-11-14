@@ -65,7 +65,35 @@ RUN entry=$(ls /standalone/node_modules/.pnpm | grep '^react-router-dom@' | head
     [ -n "$entry" ] && [ ! -e /standalone/node_modules/react-router-dom ] && \
     ln -sf ".pnpm/$entry/node_modules/react-router-dom" /standalone/node_modules/react-router-dom || true
 
-# ─── Stage 2: prisma-cli ─────────────────────────────────────────────────────
+# ─── Stage 2: cli ────────────────────────────────────────────────────────────
+# The builder serves its own CLI as a tiny npm registry (routes `npm.*`), so MCP
+# clients run a CLI built from this exact commit instead of the npm `webstudio`
+# CLI, whose API contract drifts from the instance as soon as either side moves:
+#   npx -y --@webstudio-community:registry=https://<builder>/npm/ @webstudio-community/cli mcp
+# Built from the `builder` stage (deps already installed) on a separate branch
+# of the graph so the version stamp below never touches the builder build.
+FROM builder AS cli
+
+# Commit the image is built from (passed by docker-publish.yml). It makes every
+# image's CLI version unique, which is what lets `npx` pick up a new CLI after
+# the instance is updated. Local builds without it fall back to a timestamp.
+ARG GIT_SHA=
+# Upstream version stamped on the @webstudio-is/* packages (and the CLI
+# templates), like the publisher does. Defaults to the latest npm release.
+ARG WEBSTUDIO_SDK_VERSION=
+
+RUN SDK_VERSION="${WEBSTUDIO_SDK_VERSION:-$(npm view webstudio@latest version)}" && \
+    SHORT_SHA="$(printf '%s' "$GIT_SHA" | cut -c1-7)" && \
+    CLI_VERSION="${SDK_VERSION}-fork-${SHORT_SHA:-local$(date -u +%Y%m%d%H%M%S)}" && \
+    echo "Stamping CLI ${CLI_VERSION} (@webstudio-is/* ${SDK_VERSION})" && \
+    sed -i "s/\"version\": \"0.0.0-webstudio-version\"/\"version\": \"${CLI_VERSION}\"/" packages/cli/package.json && \
+    find . -name package.json -not -path "*/node_modules/*" \
+      -exec sed -i "s/0.0.0-webstudio-version/${SDK_VERSION}/g" {} +
+
+RUN pnpm --filter="webstudio..." build && \
+    node scripts/pack-instance-cli.mjs --cli-dir packages/cli --out /cli-out
+
+# ─── Stage 3: prisma-cli ─────────────────────────────────────────────────────
 # Install the Prisma CLI in isolation so it carries Alpine-compatible engine binaries
 # without polluting the app's node_modules.
 FROM node:22-alpine AS prisma-cli
@@ -75,7 +103,7 @@ RUN echo '{"name":"prisma-migration-runner","version":"1.0.0","dependencies":{"p
       > package.json && \
     npm install --no-fund --no-audit --loglevel=error
 
-# ─── Stage 3: runner ─────────────────────────────────────────────────────────
+# ─── Stage 4: runner ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 # OpenSSL is required by Prisma engine binaries
@@ -94,6 +122,9 @@ COPY --from=builder /app/apps/builder/package.json ./package.json
 # Prisma schema + SQL migrations for `prisma migrate deploy`
 COPY --from=builder /app/packages/prisma-client/prisma/schema.prisma ./prisma/schema.prisma
 COPY --from=builder /app/packages/prisma-client/prisma/migrations ./prisma/migrations
+
+# Instance-served CLI tarball + metadata (read by the `npm.*` routes)
+COPY --from=cli /cli-out ./cli
 
 # Prisma CLI (isolated from app node_modules)
 COPY --from=prisma-cli /prisma /prisma

@@ -12,7 +12,12 @@ import {
 import { resolveApiConnection } from "../api-connection";
 import { getStableErrorCode, isMissingApiAccessError } from "../error-codes";
 import { HandledCliError } from "../errors";
+import {
+  getInstanceCliServerCommand,
+  isInstanceServedCliVersion,
+} from "../instance-cli";
 import { isPlainRecord } from "../type-utils";
+import packageJson from "../../package.json" with { type: "json" };
 import { apiCompatibilityHeaders, getCliCompatibilityMessage } from "./api";
 import type {
   CommonYargsArgv,
@@ -142,6 +147,7 @@ export const mergeServerConfig = ({
 
 export type ConnectDependencies = {
   createFolderIfNotExists: typeof createFolderIfNotExists;
+  resolveDefaultServerCommand: () => Promise<string>;
   isFileExists: typeof isFileExists;
   readFile: (path: string, encoding: "utf8") => Promise<string>;
   registerCodexServer: (serverCommand: ServerCommand) => Promise<void>;
@@ -204,6 +210,29 @@ export const verifyProjectAccess = async (
   }
 };
 
+// An instance-served CLI registers itself from the instance's registry.
+export const resolveDefaultServerCommand = async ({
+  version = packageJson.version,
+  resolveConnection = () => resolveApiConnection(),
+}: {
+  version?: string;
+  resolveConnection?: () => Promise<{ origin: string }>;
+} = {}) => {
+  if (isInstanceServedCliVersion(version) === false) {
+    return defaultAgentServerCommand;
+  }
+  let origin: string;
+  try {
+    ({ origin } = await resolveConnection());
+  } catch {
+    log.error(
+      "This Webstudio CLI was served by a self-hosted instance, so MCP must start it from that instance. Run `init --link <share-link>` in this folder first, or pass --command."
+    );
+    throw new HandledCliError();
+  }
+  return getInstanceCliServerCommand(origin);
+};
+
 const registerCodexServer = async (serverCommand: ServerCommand) => {
   await x("codex", getCodexRegistrationArgs(serverCommand));
   await x("codex", ["mcp", "get", agentServerName]);
@@ -211,6 +240,7 @@ const registerCodexServer = async (serverCommand: ServerCommand) => {
 
 const defaultDependencies: ConnectDependencies = {
   createFolderIfNotExists,
+  resolveDefaultServerCommand: () => resolveDefaultServerCommand(),
   isFileExists,
   readFile,
   registerCodexServer,
@@ -227,9 +257,7 @@ export const connectOptions = (yargs: CommonYargsArgv) =>
     })
     .option("command", {
       type: "string",
-      default: defaultAgentServerCommand,
-      describe:
-        "Command used by the client to start the Webstudio MCP server over stdio",
+      describe: `Command used by the client to start the Webstudio MCP server over stdio (default: ${defaultAgentServerCommand}, or this instance's own CLI when it was served by a self-hosted Webstudio)`,
     })
     .option("print", {
       type: "boolean",
@@ -266,7 +294,6 @@ export const connect = async (
   options: ConnectOptions,
   dependencies: ConnectDependencies = defaultDependencies
 ) => {
-  const serverCommand = options.command ?? defaultAgentServerCommand;
   const client = options.client;
 
   if (client === undefined) {
@@ -279,6 +306,8 @@ export const connect = async (
     return;
   }
 
+  const serverCommand =
+    options.command ?? (await dependencies.resolveDefaultServerCommand());
   const parsedServerCommand = addClientServerArgs(
     client,
     parseServerCommand(serverCommand)
