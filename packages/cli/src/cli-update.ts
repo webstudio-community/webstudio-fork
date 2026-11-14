@@ -1,4 +1,5 @@
 import semver from "semver";
+import { isInstanceServedCliVersion } from "./instance-cli";
 import { isPlainRecord } from "./type-utils";
 
 const latestPackageUrl = "https://registry.npmjs.org/webstudio/latest";
@@ -18,6 +19,8 @@ export const checkForCliUpdate = async ({
 }): Promise<CliUpdate | undefined> => {
   if (
     currentVersion === "0.0.0-webstudio-version" ||
+    // An npm `webstudio` release would point back to an incompatible CLI.
+    isInstanceServedCliVersion(currentVersion) ||
     semver.valid(currentVersion) === null
   ) {
     return;

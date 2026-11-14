@@ -38,17 +38,25 @@ jobs:
       contents: read
       packages: write   # required for ghcr.io push
 
+    env:
+      # Commit the image is built from (checkout + instance-served CLI stamp).
+      # - workflow_run: github.sha/github.ref default to develop's *current*
+      #   tip, not the commit verify-standalone-deps actually checked — pin
+      #   the exact verified commit so a push landing in the gap between that
+      #   check finishing and this job starting can't slip an unverified
+      #   commit into the image.
+      # - pull_request: the PR head, not GitHub's ephemeral merge commit
+      #   (github.sha). The matching publisher test image bakes its CLI from
+      #   the PR branch head (publisher-test-image → builder_ref), and builder
+      #   and publisher must come from the same commit; the head sha is also
+      #   the one shown in the test-images comment and found in the branch.
+      # - release / workflow_dispatch: github.sha (the tag / dispatched ref).
+      SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
     steps:
-      # For workflow_run, github.sha/github.ref default to develop's *current*
-      # tip, not the commit verify-standalone-deps actually checked — pin the
-      # exact verified commit explicitly so a push landing in the gap between
-      # that check finishing and this job starting can't slip an unverified
-      # commit into the image. github.sha already resolves to the right
-      # commit for every other trigger (the PR merge commit, the release tag,
-      # the dispatched ref), so only override it for workflow_run.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
 
       - name: Prepare platform pair
         run: |
@@ -80,6 +88,9 @@ jobs:
           context: .
           file: apps/builder/Dockerfile
           platforms: ${{ matrix.platform }}
+          # Stamps the served CLI version (<version>-fork-<sha>).
+          build-args: |
+            GIT_SHA=${{ env.SOURCE_SHA }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: |
