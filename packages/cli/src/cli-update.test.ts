@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { checkForCliUpdate, isInstanceServedCliVersion } from "./cli-update";
+import { checkForCliUpdate } from "./cli-update";
 
 test("detects a newer CLI release from the npm registry", async () => {
   const request = vi.fn(async () => Response.json({ version: "0.301.0" }));
