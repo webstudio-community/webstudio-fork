@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { checkForCliUpdate } from "./cli-update";
+import { checkForCliUpdate, isInstanceServedCliVersion } from "./cli-update";
 
 test("detects a newer CLI release from the npm registry", async () => {
   const request = vi.fn(async () => Response.json({ version: "0.301.0" }));
@@ -50,4 +50,22 @@ test("skips the registry check for a development build without a release version
     checkForCliUpdate({ currentVersion: "0.0.0-webstudio-version", request })
   ).resolves.toBeUndefined();
   expect(request).not.toHaveBeenCalled();
+});
+
+test("never recommends an npm release to a CLI served by a self-hosted instance", async () => {
+  const request = vi.fn(async () => Response.json({ version: "0.301.0" }));
+
+  await expect(
+    checkForCliUpdate({ currentVersion: "0.300.0-fork-abc1234", request })
+  ).resolves.toBeUndefined();
+  expect(request).not.toHaveBeenCalled();
+});
+
+test("recognizes instance-served CLI versions", () => {
+  expect(isInstanceServedCliVersion("0.300.0-fork-abc1234")).toBe(true);
+  expect(isInstanceServedCliVersion("0.300.0-fork-local20261114203000")).toBe(
+    true
+  );
+  expect(isInstanceServedCliVersion("0.300.0")).toBe(false);
+  expect(isInstanceServedCliVersion("0.300.0-beta.1")).toBe(false);
 });

@@ -95,6 +95,10 @@ jobs:
           context: .
           file: apps/builder/Dockerfile
           platforms: ${{ matrix.platform }}
+          # Same commit as the checkout above: stamps the instance-served CLI
+          # version (<version>-fork-<sha>) so each image serves a distinct CLI.
+          build-args: |
+            GIT_SHA=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: |
