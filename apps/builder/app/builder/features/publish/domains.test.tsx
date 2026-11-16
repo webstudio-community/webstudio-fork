@@ -68,6 +68,7 @@ const renderStatus = (
             isLoading={isLoading}
             latestPublish={latestPublish}
             onOpenReport={onOpenReport}
+            host="local"
           />
         </TooltipProvider>
       </div>
