@@ -94,6 +94,12 @@ beforeAll(async () => {
           throw error;
         }
       },
+      "domain.publisherCapabilities": () => ({
+        cloudflare: false,
+        coolify: false,
+        ssh: false,
+        targets: [],
+      }),
     },
   });
   interceptor.start();

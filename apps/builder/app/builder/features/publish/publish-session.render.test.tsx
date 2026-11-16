@@ -135,6 +135,12 @@ beforeAll(async () => {
         mdxErrors: [],
         mdxOmissions: [],
       }),
+      "domain.publisherCapabilities": () => ({
+        cloudflare: false,
+        coolify: false,
+        ssh: false,
+        targets: [],
+      }),
     },
   });
   interceptor.start();
