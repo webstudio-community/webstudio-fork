@@ -81,6 +81,12 @@ beforeAll(async () => {
         data: 0,
         limit: 100,
       }),
+      "domain.publisherCapabilities": () => ({
+        cloudflare: false,
+        coolify: false,
+        ssh: false,
+        targets: [],
+      }),
     },
     (route, input) => requests.push({ route, input })
   );
