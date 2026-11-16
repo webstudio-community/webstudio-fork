@@ -16,7 +16,9 @@ const SELF_HOSTED_PENDING_TIMEOUT =
   process.env.NODE_ENV === "production" ? 60 * 8 * 1000 : 35000;
 
 export const getPendingTimeout = () =>
-  $selfHostedPublisherConfigured.get() ? SELF_HOSTED_PENDING_TIMEOUT : PENDING_TIMEOUT;
+  $selfHostedPublisherConfigured.get()
+    ? SELF_HOSTED_PENDING_TIMEOUT
+    : PENDING_TIMEOUT;
 
 export const getPublishStatusDisplay = ({
   createdAt,

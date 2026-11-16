@@ -49,7 +49,6 @@ export const domainRouter = router({
     }
   }),
 
-
   getEntriToken: procedure.query(async ({ ctx }) => {
     try {
       const result = await ctx.entri.entryApi.getEntriToken();
