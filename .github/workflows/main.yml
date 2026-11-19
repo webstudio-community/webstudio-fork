@@ -156,7 +156,9 @@ jobs:
 
   builder-e2e-build:
     name: builder-e2e build
-    timeout-minutes: 7
+    # Community fork: 12 (upstream 7) leaves room to generate the schema
+    # snapshot when it is not committed (see builder-e2e-build action).
+    timeout-minutes: 12
 
     runs-on: ubuntu-24.04
 
