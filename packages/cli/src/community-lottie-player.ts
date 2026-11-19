@@ -6,13 +6,16 @@
  * component source is shipped inside the generated site (app/lottie-player.tsx)
  * and the component descriptor points to it instead of the npm package.
  *
- * Drop this module (and its call in prebuild.ts) once upstream ships the
- * component in its published package.
+ * The shipped copy lives in templates/community-runtime/ (resolved at runtime
+ * like every CLI template, so it works from sources and from the packed CLI);
+ * a test keeps it byte-identical to the package source.
+ *
+ * Drop this module, its template copy and its call in prebuild.ts once
+ * upstream ships the component in its published package.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import lottiePlayerSource from "../../sdk-components-react/src/lottie-player.tsx?raw";
-import sdkComponentsReactPackage from "../../sdk-components-react/package.json";
+import { dirname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const lottiePlayerComponent = "LottiePlayer";
 
@@ -22,22 +25,21 @@ export const lottiePlayerFile = join("app", "lottie-player.tsx");
 // "../lottie-player" specifier resolves for all frameworks.
 export const lottiePlayerDescriptor = "../lottie-player:LottiePlayer";
 
-const runtimeDependencies = ["lottie-web", "@react-aria/utils"] as const;
-
-export const getLottiePlayerDependencies = () => {
-  const dependencies: Record<string, string> =
-    sdkComponentsReactPackage.dependencies;
-  return Object.fromEntries(
-    runtimeDependencies.map((name) => {
-      const version = dependencies[name];
-      if (version === undefined) {
-        throw new Error(
-          `${name} is missing from @webstudio-is/sdk-components-react dependencies`
-        );
-      }
-      return [name, version];
-    })
+export const getLottiePlayerTemplatePath = () =>
+  normalize(
+    join(
+      dirname(fileURLToPath(new URL(import.meta.url))),
+      "..",
+      "templates",
+      "community-runtime",
+      "lottie-player.tsx"
+    )
   );
+
+// Kept in sync with @webstudio-is/sdk-components-react dependencies by a test.
+export const lottiePlayerDependencies: Record<string, string> = {
+  "lottie-web": "^5.12.2",
+  "@react-aria/utils": "^3.27.0",
 };
 
 export const shipLottiePlayer = async ({
@@ -65,13 +67,16 @@ export const shipLottiePlayer = async ({
     return;
   }
 
-  await writeFile(join(root, lottiePlayerFile), lottiePlayerSource);
+  await writeFile(
+    join(root, lottiePlayerFile),
+    await readFile(getLottiePlayerTemplatePath(), "utf8")
+  );
 
   const packageJsonPath = join(root, "package.json");
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
   packageJson.dependencies = {
     ...packageJson.dependencies,
-    ...getLottiePlayerDependencies(),
+    ...lottiePlayerDependencies,
   };
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 };

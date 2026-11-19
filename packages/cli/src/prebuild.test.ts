@@ -63,7 +63,10 @@ import {
   materializeAssetIndex,
   prebuild,
 } from "./prebuild";
-import { getLottiePlayerDependencies } from "./community-lottie-player";
+import {
+  getLottiePlayerTemplatePath,
+  lottiePlayerDependencies,
+} from "./community-lottie-player";
 import { generateResponseHeadersModule } from "./response-headers";
 
 const createSsgAssetResourceFetch = (options: {
@@ -1678,11 +1681,22 @@ describe("prebuild", () => {
         readFile("app/lottie-player.tsx", "utf8")
       ).resolves.toContain("export const LottiePlayer");
       const packageJson = JSON.parse(await readFile("package.json", "utf8"));
-      expect(packageJson.dependencies).toMatchObject(
-        getLottiePlayerDependencies()
-      );
+      expect(packageJson.dependencies).toMatchObject(lottiePlayerDependencies);
     }
   );
+
+  test("keeps the shipped LottiePlayer in sync with the package", async () => {
+    const packageRoot = join(originalCwd, "..", "sdk-components-react");
+    await expect(readFile(getLottiePlayerTemplatePath(), "utf8")).resolves.toBe(
+      await readFile(join(packageRoot, "src", "lottie-player.tsx"), "utf8")
+    );
+    const { dependencies } = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8")
+    );
+    for (const [name, version] of Object.entries(lottiePlayerDependencies)) {
+      expect(dependencies[name]).toBe(version);
+    }
+  });
 
   test("does not ship LottiePlayer when the site does not use it", async () => {
     await prebuild({ assets: false, template: ["ssg"] });
