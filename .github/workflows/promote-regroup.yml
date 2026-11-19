@@ -1,10 +1,8 @@
 name: Promote regroup
 
-# The regroup routine pushes regroup/<yyyymm>, and the sync routine pushes
-# sync/rebase-<yyyymmdd> after resolving a failed upstream rebase. Each opens
-# a PR to main so the regular CI runs on the rewritten patch series. When
-# "Main workflow" is green on that exact commit, develop is moved to it (after
-# a backup tag), provided develop is still where the routine started from.
+# Moves develop to a regroup/* or sync/rebase-* branch once its CI is green on
+# that commit and develop has not moved. Failures that also happen on the
+# upstream base commit do not block it.
 on:
   workflow_run:
     workflows: ["Main workflow"]
@@ -18,12 +16,14 @@ jobs:
   promote:
     name: Promote regroup branch to develop
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.conclusion == 'success' ||
+       github.event.workflow_run.conclusion == 'failure') &&
       github.event.workflow_run.event == 'pull_request' &&
       (startsWith(github.event.workflow_run.head_branch, 'regroup/') ||
        startsWith(github.event.workflow_run.head_branch, 'sync/rebase-'))
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: write
       pull-requests: write
       issues: write
@@ -31,6 +31,9 @@ jobs:
       GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
       BRANCH: ${{ github.event.workflow_run.head_branch }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      CI_RUN_ID: ${{ github.event.workflow_run.id }}
+      CI_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +46,47 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin develop "$BRANCH"
+          git fetch origin develop main "$BRANCH"
 
           if [ "$(git rev-parse "origin/$BRANCH")" != "$HEAD_SHA" ]; then
-            echo "RESULT=branch-moved" >> "$GITHUB_ENV"
+            # Superseded push.
+            if [ "$CI_CONCLUSION" = failure ]; then
+              echo "RESULT=superseded" >> "$GITHUB_ENV"
+            else
+              echo "RESULT=branch-moved" >> "$GITHUB_ENV"
+            fi
             echo "Branch moved since CI ran, not promoting."; exit 0
+          fi
+
+          CI_NOTE="CI green"
+          if [ "$CI_CONCLUSION" = failure ]; then
+            FAILED=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | .name' | sort -u)
+            BASE=$(git merge-base origin/main "$HEAD_SHA")
+            BASE_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW_ID/runs?head_sha=$BASE&per_page=20" \
+              --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion != "cancelled")][0].id // empty')
+            if [ -z "$BASE_RUN" ]; then
+              FORK_FAILED="$FAILED"
+              WHY="no completed Main workflow run on main@${BASE:0:9} to compare with"
+            else
+              UPSTREAM_BAD=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$BASE_RUN/jobs?per_page=100" \
+                --jq '.jobs[] | select(.conclusion != "success") | .name' | sort -u)
+              FORK_FAILED=$(comm -23 <(printf '%s\n' "$FAILED") <(printf '%s\n' "$UPSTREAM_BAD") | sed '/^$/d')
+              WHY="failing only on the fork branch (upstream run $BASE_RUN on main@${BASE:0:9} passes them)"
+            fi
+            if [ -n "$FORK_FAILED" ]; then
+              {
+                echo "RESULT=fork-failure"
+                echo "FAIL_DETAIL<<EOF_FAIL"
+                echo "Jobs $WHY:"
+                printf '%s\n' "$FORK_FAILED" | sed 's/^/- /'
+                echo "EOF_FAIL"
+              } >> "$GITHUB_ENV"
+              echo "Fork-specific CI failures, not promoting:"; printf '%s\n' "$FORK_FAILED"
+              exit 0
+            fi
+            CI_NOTE="CI red only on upstream failures (also failing on main@${BASE:0:9}: $(printf '%s' "$FAILED" | paste -sd, -))"
+            echo "CI_NOTE=$CI_NOTE" >> "$GITHUB_ENV"
           fi
 
           PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
@@ -67,33 +106,37 @@ jobs:
           echo "RESULT=promoted" >> "$GITHUB_ENV"
 
           gh pr close "$PR" --delete-branch \
-            --comment "CI green: develop promoted to $HEAD_SHA. Backup tag: $TAG."
+            --comment "$CI_NOTE: develop promoted to $HEAD_SHA. Backup tag: $TAG."
 
           case "$BRANCH" in sync/rebase-*)
             for n in $(gh issue list --label sync-conflict --state open \
                 --json number --jq '.[].number'); do
               gh issue close "$n" --comment \
-                "Resolved by $BRANCH (PR #$PR): CI green, develop promoted to $HEAD_SHA. Backup tag: $TAG."
+                "Resolved by $BRANCH (PR #$PR): $CI_NOTE, develop promoted to $HEAD_SHA. Backup tag: $TAG."
             done ;;
           esac
 
       # The single report mail, once the outcome is known.
       - name: Send final sync report
-        if: always() && startsWith(env.BRANCH, 'sync/rebase-')
+        if: always() && startsWith(env.BRANCH, 'sync/rebase-') && env.RESULT != 'superseded'
         env:
           MAIL_WEBHOOK_URL: ${{ secrets.SYNC_MAIL_WEBHOOK_URL }}
           PROMOTE_OUTCOME: ${{ steps.promote.outcome }}
         run: |
           case "${RESULT:-}" in
             promoted) STATUS="Fixed and promoted"
-              DETAIL="develop now points to $HEAD_SHA. Backup tag: ${TAG:-n/a}. Open sync-conflict issues closed." ;;
+              DETAIL="${CI_NOTE:-CI green}. develop now points to $HEAD_SHA. Backup tag: ${TAG:-n/a}. Open sync-conflict issues closed." ;;
+            fork-failure) STATUS="Manual review needed"
+              DETAIL=$(printf 'CI failed on %s for reasons not shared with upstream: develop was NOT updated.\n%s\nCI run: %s/%s/actions/runs/%s' \
+                "$BRANCH" "${FAIL_DETAIL:-}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$CI_RUN_ID") ;;
             branch-moved) STATUS="Manual review needed"
               DETAIL="CI is green but $BRANCH moved after it ran: develop was NOT updated." ;;
             no-pr) STATUS="Manual review needed"
-              DETAIL="CI is green but no open PR exists for $BRANCH: develop was NOT updated." ;;
+              DETAIL="No open PR exists for $BRANCH: develop was NOT updated." ;;
             *) STATUS="Failed"
-              DETAIL="CI is green but the promotion step failed (outcome: $PROMOTE_OUTCOME): develop was NOT updated. See $RUN_URL" ;;
+              DETAIL="The promotion step failed (outcome: $PROMOTE_OUTCOME): develop was NOT updated. See $RUN_URL" ;;
           esac
+          PR=${PR:-$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || true)}
           BODY=$(gh pr view "${PR:-0}" --json body --jq .body 2>/dev/null | sed '/^Expected-Develop:/d' || true)
           REPORT=$(printf 'Date: %s\nRepo: %s\nStatus: %s\n\n%s\nBranch: %s (PR #%s)\n\n--- ROUTINE REPORT (PR description) ---\n%s\n' \
             "$(date +%F)" "$GITHUB_REPOSITORY" "$STATUS" "$DETAIL" "$BRANCH" "${PR:-?}" "$BODY")
