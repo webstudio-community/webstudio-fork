@@ -6,17 +6,27 @@ import {
   acceptToMimeCategories,
   formatAssetName,
   type Asset,
+  type AssetType,
 } from "@webstudio-is/sdk";
 import { $assets } from "~/shared/sync/data-stores";
 import { AssetManager } from "~/builder/shared/asset-manager";
 import { AssetUpload } from "~/builder/shared/assets";
 
-const acceptsImageUpload = (accept?: string) => {
+// Upload is offered only when `accept` maps to a single asset type,
+// e.g. "image/*" -> image, "application/json" (Lottie) -> file.
+const getUploadType = (accept?: string): AssetType | undefined => {
   const acceptCategories = acceptToMimeCategories(accept || "");
-  return (
-    acceptCategories === "*" ||
-    (acceptCategories.size === 1 && acceptCategories.has("image"))
-  );
+  if (acceptCategories === "*") {
+    return "image";
+  }
+  if (acceptCategories.size !== 1) {
+    return;
+  }
+  const [category] = acceptCategories;
+  if (category === "image" || category === "font" || category === "video") {
+    return category;
+  }
+  return "file";
 };
 
 type Props = {
@@ -46,17 +56,17 @@ export const SelectAsset = ({
   );
 
   const asset = useStore($asset);
-  const acceptsImages = acceptsImageUpload(accept);
+  const uploadType = getUploadType(accept);
 
   return (
     <Flex gap={2} css={{ flex: 1 }} align="center">
       <FloatingPanel
         open={open}
         onOpenChange={setOpen}
-        title={title ?? (acceptsImages ? "Images" : "Assets")}
+        title={title ?? (uploadType === "image" ? "Images" : "Assets")}
         titleSuffix={
-          acceptsImages ? (
-            <AssetUpload type="image" accept={accept} />
+          uploadType !== undefined ? (
+            <AssetUpload type={uploadType} accept={accept} />
           ) : undefined
         }
         content={

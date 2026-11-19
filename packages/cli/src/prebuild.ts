@@ -146,6 +146,7 @@ import { formatZodIssues } from "./zod-utils";
 import { createFramework as createRemixFramework } from "./framework-remix";
 import { createFramework as createReactRouterFramework } from "./framework-react-router";
 import { createFramework as createVikeSsgFramework } from "./framework-vike-ssg";
+import { shipLottiePlayer } from "./community-lottie-player";
 import { routeTemplatesDirectory } from "./framework";
 import { readSsgAssetResourceFetchTemplate } from "./ssg-asset-resource-fetch-template";
 
@@ -1183,6 +1184,12 @@ export const createManagedFormResourceFetch = ({ request, context, projectDomain
   } else {
     framework = await createRemixFramework(frameworkOptions);
   }
+  // LottiePlayer ships with the site until upstream publishes it.
+  await shipLottiePlayer({
+    root: buildRoot,
+    components: framework.components,
+    instances: migratedInstances.values(),
+  });
 
   const assetBaseUrl = await readAssetBaseUrl(join(cwd(), "app/constants.mjs"));
 

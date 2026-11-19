@@ -12,7 +12,8 @@ every sync:
 7. `ci: docker publish/cleanup and upstream sync workflows` — image build on PR/develop/release, GHCR pruning, scheduled upstream sync (publisher rebuild trigger, fixture-stamp conflict auto-resolution, flaky CLI test retry, deterministic `bundleVersion` re-stamp script)
 8. `fix(webhook-form): make Webhook Form work in SSG sites with a single bot field` — client-POST Webhook Form shipped with the generated SSG site (`app/webhook-form.tsx`); to revisit when upstream's new webhook form lands
 9. `feat(mcp): instance-served CLI for MCP clients` — builder image packs a CLI from its own commit and serves it as an npm registry (`/npm/`), so MCP writes stay compatible without tracking upstream's npm CLI; no upstream update nudge for `-fork-<sha>` versions
-10. `docs: fork documentation` — this file, CLAUDE.md, README
+10. `feat: LottiePlayer component (pending upstream #5849)` — Lottie JSON player + asset thumbnails in the builder; the CLI ships the component inside generated sites (`app/lottie-player.tsx`, `community-lottie-player.ts`) since they install upstream's `sdk-components-react` from npm; drop when upstream merges webstudio-is/webstudio#5849
+11. `docs: fork documentation` — this file, CLAUDE.md, README
 
 > **Maintainers**: new PRs are squash-merged on `develop`, then folded into the
 > relevant patch (or added as a new one, updating this list) at the next

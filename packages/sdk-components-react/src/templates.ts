@@ -4,5 +4,6 @@ export { meta as MarkdownEmbed } from "./markdown-embed.template";
 export { meta as WebhookForm } from "./webhook-form.template";
 export { meta as Vimeo } from "./vimeo.template";
 export { meta as YouTube } from "./youtube.template";
+export { meta as LottiePlayer } from "./lottie-player.template";
 export { meta as HeadSlot } from "./head-slot.template";
 export { Alert } from "./basic.template";

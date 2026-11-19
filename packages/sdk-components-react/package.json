@@ -81,6 +81,7 @@
     "@webstudio-is/react-sdk": "workspace:*",
     "@webstudio-is/sdk": "workspace:*",
     "await-interaction-response": "^0.0.2",
+    "lottie-web": "^5.12.2",
     "colord": "^2.9.3",
     "decode-named-character-reference": "1.0.2",
     "github-slugger": "2.0.0",
