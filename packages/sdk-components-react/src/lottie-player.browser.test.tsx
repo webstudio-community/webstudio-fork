@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import lottie from "lottie-web";
 import { ReactSdkContext } from "@webstudio-is/react-sdk/runtime";
 import { LottiePlayer } from "./lottie-player";
 
@@ -24,13 +25,10 @@ const createAnimation = () => {
 
 type Animation = ReturnType<typeof createAnimation>;
 
-const lottie = vi.hoisted(() => ({
-  loadAnimation: vi.fn(),
-}));
-
-vi.mock("lottie-web", () => ({ default: lottie }));
-
+// Browser mode does not intercept the pre-bundled dependency with vi.mock, so
+// spy on the module instance the component imports dynamically.
 let animation: Animation;
+let loadAnimation: ReturnType<typeof vi.spyOn>;
 
 const sdkContext = {
   assetBaseUrl: "/assets/",
@@ -48,30 +46,35 @@ const renderPlayer = async (props: ComponentProps<typeof LottiePlayer>) => {
       <LottiePlayer data-testid="player" src="/animation.json" {...props} />
     </ReactSdkContext.Provider>
   );
-  await waitFor(() => expect(lottie.loadAnimation).toHaveBeenCalled());
+  await waitFor(() => expect(loadAnimation).toHaveBeenCalled());
   animation.emit("data_ready");
   return result.getByTestId("player");
 };
 
 beforeEach(() => {
   animation = createAnimation();
-  lottie.loadAnimation.mockReset().mockReturnValue(animation);
+  loadAnimation = vi
+    .spyOn(lottie, "loadAnimation")
+    .mockReturnValue(
+      animation as unknown as ReturnType<typeof lottie.loadAnimation>
+    );
 });
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 test("loop plays automatically", async () => {
   await renderPlayer({ behavior: "loop" });
-  expect(lottie.loadAnimation).toHaveBeenCalledWith(
+  expect(loadAnimation).toHaveBeenCalledWith(
     expect.objectContaining({ loop: true, autoplay: true })
   );
 });
 
 test("loop on click starts looping on click and pauses on the next click", async () => {
   const player = await renderPlayer({ behavior: "loop on click" });
-  expect(lottie.loadAnimation).toHaveBeenCalledWith(
+  expect(loadAnimation).toHaveBeenCalledWith(
     expect.objectContaining({ loop: true, autoplay: false })
   );
   expect(animation.play).not.toHaveBeenCalled();
@@ -90,7 +93,7 @@ test("loop on click starts looping on click and pauses on the next click", async
 
 test("loop on hover loops while hovered and pauses on mouse out", async () => {
   const player = await renderPlayer({ behavior: "loop on hover" });
-  expect(lottie.loadAnimation).toHaveBeenCalledWith(
+  expect(loadAnimation).toHaveBeenCalledWith(
     expect.objectContaining({ loop: true, autoplay: false })
   );
 
@@ -109,7 +112,7 @@ test("loop on click starts playing when controlled as open", async () => {
 
 test("toggle on click still plays the animation forward then backward", async () => {
   const player = await renderPlayer({ behavior: "toggle on click" });
-  expect(lottie.loadAnimation).toHaveBeenCalledWith(
+  expect(loadAnimation).toHaveBeenCalledWith(
     expect.objectContaining({ loop: false, autoplay: false })
   );
 
