@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  test,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import lottie from "lottie-web";
@@ -28,7 +35,7 @@ type Animation = ReturnType<typeof createAnimation>;
 // Browser mode does not intercept the pre-bundled dependency with vi.mock, so
 // spy on the module instance the component imports dynamically.
 let animation: Animation;
-let loadAnimation: ReturnType<typeof vi.spyOn>;
+let loadAnimation: MockInstance<typeof lottie.loadAnimation>;
 
 const sdkContext = {
   assetBaseUrl: "/assets/",
