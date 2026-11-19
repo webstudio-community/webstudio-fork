@@ -63,6 +63,10 @@ import {
   materializeAssetIndex,
   prebuild,
 } from "./prebuild";
+import {
+  getLottiePlayerTemplatePath,
+  lottiePlayerDependencies,
+} from "./community-lottie-player";
 import { generateResponseHeadersModule } from "./response-headers";
 
 const createSsgAssetResourceFetch = (options: {
@@ -1638,6 +1642,70 @@ describe("prebuild", () => {
       );
     }
   );
+
+  // Community fork: LottiePlayer is pending upstream (webstudio-is/webstudio#5849).
+  test.each(["defaults", "react-router", "ssg"])(
+    "ships LottiePlayer with the generated site for the %s template",
+    async (template) => {
+      await writeSiteData(
+        createSiteData({
+          instances: [
+            [
+              "root",
+              {
+                id: "root",
+                component: "Box",
+                children: [{ type: "id", value: "lottie" }],
+              },
+            ],
+            [
+              "lottie",
+              { id: "lottie", component: "LottiePlayer", children: [] },
+            ],
+          ],
+        })
+      );
+      await prebuild({ assets: false, template: [template] });
+
+      // Generated sites install @webstudio-is/sdk-components-react from public
+      // npm (upstream's build, no LottiePlayer), so the component must come
+      // from the copy shipped in the site.
+      const generated = await readFile("app/__generated__/_index.tsx", "utf8");
+      expect(generated).toMatch(
+        /import \{ LottiePlayer as \w+ \} from "\.\.\/lottie-player"/
+      );
+      expect(generated).not.toMatch(
+        /import \{[^}]*\bLottiePlayer\b[^}]*\} from "@webstudio-is\/sdk-components-react/
+      );
+      await expect(
+        readFile("app/lottie-player.tsx", "utf8")
+      ).resolves.toContain("export const LottiePlayer");
+      const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+      expect(packageJson.dependencies).toMatchObject(lottiePlayerDependencies);
+    }
+  );
+
+  test("keeps the shipped LottiePlayer in sync with the package", async () => {
+    const packageRoot = join(originalCwd, "..", "sdk-components-react");
+    await expect(readFile(getLottiePlayerTemplatePath(), "utf8")).resolves.toBe(
+      await readFile(join(packageRoot, "src", "lottie-player.tsx"), "utf8")
+    );
+    const { dependencies } = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8")
+    );
+    for (const [name, version] of Object.entries(lottiePlayerDependencies)) {
+      expect(dependencies[name]).toBe(version);
+    }
+  });
+
+  test("does not ship LottiePlayer when the site does not use it", async () => {
+    await prebuild({ assets: false, template: ["ssg"] });
+    await expect(stat("app/lottie-player.tsx")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+    expect(packageJson.dependencies).not.toHaveProperty("lottie-web");
+  });
 
   test.each([true, false, undefined])(
     "requires direct MDX source content (available: %s)",

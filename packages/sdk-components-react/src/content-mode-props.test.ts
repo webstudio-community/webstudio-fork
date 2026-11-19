@@ -24,6 +24,7 @@ test("exposes only authored component content in Content mode", () => {
       "Link.download",
       "Link.href",
       "Link.target",
+      "LottiePlayer.src",
       "MarkdownEmbed.code",
       "Option.label",
       "RichTextLink.download",

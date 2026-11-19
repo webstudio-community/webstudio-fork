@@ -19,6 +19,7 @@ import { UploadingAnimation } from "./uploading-animation";
 import { AssetDeleteDialog, AssetSettings } from "./asset-settings";
 import type { AssetContainer } from "~/builder/shared/assets";
 import { Image } from "./image";
+import { LottieThumbnail } from "./lottie-thumbnail";
 import brokenImage from "~/shared/images/broken-image-placeholder.svg";
 import {
   formatAssetName,
@@ -101,7 +102,7 @@ const mediaPreviewStyle = {
 const StyledWebstudioImage = styled(Image, mediaPreviewStyle);
 const StyledWebstudioVideo = styled("video", mediaPreviewStyle);
 
-const GenericFilePreview = ({
+export const GenericFilePreview = ({
   ext,
   format,
   isCollectionFile = false,
@@ -425,6 +426,17 @@ export const AssetThumbnail = ({
                 assetContainer.status === "uploading"
                   ? assetContainer.objectURL
                   : wsVideoLoader({ src: asset.name })
+              }
+              ext={ext}
+              format={asset.format}
+            />
+          ) : asset.format === "json" && isCollectionFile === false ? (
+            // JSON files: render the first frame of a Lottie animation
+            <LottieThumbnail
+              src={
+                assetContainer.status === "uploading"
+                  ? assetContainer.objectURL
+                  : `/cgi/asset/${asset.name}?format=raw`
               }
               ext={ext}
               format={asset.format}

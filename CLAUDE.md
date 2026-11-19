@@ -280,6 +280,7 @@ Packages use a custom `"webstudio"` export condition to split code between desig
 
 - **Framework**: Vitest with jsdom environment
 - Test files live alongside source as `*.test.ts` / `*.test.tsx`
+- Component tests needing a DOM are `*.browser.test.tsx` (Vitest browser mode, Chromium — CI only, not runnable on the Pi); `vi.mock` does not intercept pre-bundled dependencies there, so `vi.spyOn` the imported module instead (see `lottie-player.browser.test.tsx`)
 - Path alias `~` resolves to `apps/builder/app/` in builder tests
 - Coverage via `@vitest/coverage-v8`
 
