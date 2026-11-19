@@ -37,6 +37,15 @@ type Animation = ReturnType<typeof createAnimation>;
 let animation: Animation;
 let loadAnimation: MockInstance<typeof lottie.loadAnimation>;
 
+const animationData = { fr: 30, ip: 0, op: 10, layers: [] };
+
+const mockFetchResponse = (body: string, contentType: string) =>
+  vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(
+      new Response(body, { headers: { "Content-Type": contentType } })
+    );
+
 const sdkContext = {
   assetBaseUrl: "/assets/",
   imageLoader: ({ src }: { src: string }) => src,
@@ -60,6 +69,7 @@ const renderPlayer = async (props: ComponentProps<typeof LottiePlayer>) => {
 
 beforeEach(() => {
   animation = createAnimation();
+  mockFetchResponse(JSON.stringify(animationData), "application/json");
   loadAnimation = vi
     .spyOn(lottie, "loadAnimation")
     .mockReturnValue(
@@ -129,4 +139,25 @@ test("toggle on click still plays the animation forward then backward", async ()
   fireEvent.click(player);
   expect(animation.playSegments).toHaveBeenLastCalledWith([9, 0], true);
   expect(animation.play).not.toHaveBeenCalled();
+});
+
+test("passes the fetched animation data to lottie", async () => {
+  await renderPlayer({ behavior: "loop" });
+  expect(loadAnimation).toHaveBeenCalledWith(
+    expect.objectContaining({ animationData })
+  );
+});
+
+test("ignores a source that answers with a non-animation body", async () => {
+  vi.restoreAllMocks();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  loadAnimation = vi.spyOn(lottie, "loadAnimation");
+  mockFetchResponse("<!doctype html><html></html>", "text/html");
+  render(
+    <ReactSdkContext.Provider value={sdkContext}>
+      <LottiePlayer src="/not-an-animation.json" />
+    </ReactSdkContext.Provider>
+  );
+  await waitFor(() => expect(warn).toHaveBeenCalled());
+  expect(loadAnimation).not.toHaveBeenCalled();
 });

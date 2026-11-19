@@ -12,6 +12,32 @@ import { ReactSdkContext } from "@webstudio-is/react-sdk/runtime";
 
 const defaultTag = "div";
 
+/** Minimal shape check so non-animation JSON files are not handed to lottie. */
+const isLottieAnimationData = (data: unknown): data is object => {
+  if (typeof data !== "object" || data === null) {
+    return false;
+  }
+  const { fr, ip, op, layers } = data as Record<string, unknown>;
+  return (
+    typeof fr === "number" &&
+    typeof ip === "number" &&
+    typeof op === "number" &&
+    Array.isArray(layers)
+  );
+};
+
+const loadLottieAnimationData = async (src: string, signal?: AbortSignal) => {
+  const response = await fetch(src, { signal });
+  if (response.ok === false) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+  const data: unknown = await response.json();
+  if (isLottieAnimationData(data) === false) {
+    throw new Error("Not a Lottie animation");
+  }
+  return data;
+};
+
 type AnimationInstance = {
   destroy: () => void;
   setSpeed: (speed: number) => void;
@@ -153,8 +179,17 @@ export const LottiePlayer = forwardRef<Ref, Props>(
       }
 
       let cancelled = false;
+      const controller = new AbortController();
 
-      import("lottie-web").then(({ default: lottie }) => {
+      const load = async () => {
+        // Fetch the JSON ourselves instead of lottie's `path` option: lottie's
+        // XHR loader throws an uncaught error when a URL answers 200 with a
+        // non-JSON body (e.g. an HTML page).
+        const animationData = await loadLottieAnimationData(
+          src,
+          controller.signal
+        );
+        const { default: lottie } = await import("lottie-web");
         if (cancelled || !container.isConnected) {
           return;
         }
@@ -164,17 +199,19 @@ export const LottiePlayer = forwardRef<Ref, Props>(
           renderer: "svg",
           loop: isLoopMode,
           autoplay: isLoopMode && isControlledMode === false,
-          path: src,
+          animationData,
         }) as AnimationInstance;
 
         animRef.current = anim;
         anim.setSpeed(speed);
         anim.setDirection(playReverse ? -1 : 1);
 
-        anim.addEventListener("data_ready", () => {
-          if (cancelled) {
+        let isReady = false;
+        const onReady = () => {
+          if (cancelled || isReady) {
             return;
           }
+          isReady = true;
           totalFramesRef.current = anim.totalFrames;
           if (isControlledMode === false) {
             return;
@@ -187,11 +224,25 @@ export const LottiePlayer = forwardRef<Ref, Props>(
           }
           const lastFrame = anim.totalFrames - 1;
           anim.goToAndStop(openStateRef.current ? lastFrame : 0, true);
-        });
+        };
+        anim.addEventListener("data_ready", onReady);
+        // With inline animationData, lottie may finish setup synchronously,
+        // before the listener above is attached.
+        if (anim.totalFrames > 0) {
+          onReady();
+        }
+      };
+
+      load().catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        console.warn(`LottiePlayer: cannot load "${src}"`, error);
       });
 
       return () => {
         cancelled = true;
+        controller.abort();
         animRef.current?.destroy();
         animRef.current = null;
         totalFramesRef.current = 0;
