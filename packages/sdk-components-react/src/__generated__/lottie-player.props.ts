@@ -2,15 +2,22 @@ import type { PropMeta } from "@webstudio-is/sdk";
 
 export const props: Record<string, PropMeta> = {
   behavior: {
-    description: "loop, toggle on click, or toggle on hover.",
+    description:
+      "loop, toggle on click, toggle on hover, loop on click, or loop on hover.",
     required: false,
-    control: "radio",
+    control: "select",
     type: "string",
-    options: ["loop", "toggle on click", "toggle on hover"],
+    options: [
+      "loop",
+      "toggle on click",
+      "toggle on hover",
+      "loop on click",
+      "loop on hover",
+    ],
     defaultValue: "loop",
   },
   playReverse: {
-    description: "Play the animation in reverse (loop mode only).",
+    description: "Play the animation in reverse (loop behaviors only).",
     required: false,
     control: "boolean",
     type: "boolean",
@@ -37,7 +44,8 @@ export const props: Record<string, PropMeta> = {
     type: "string",
   },
   isOpen: {
-    description: "Controlled open/closed state for toggle and hover modes.",
+    description:
+      "Controlled state for click and hover behaviors (open or playing).",
     required: false,
     control: "boolean",
     type: "boolean",

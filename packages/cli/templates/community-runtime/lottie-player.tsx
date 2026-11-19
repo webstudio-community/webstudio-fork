@@ -18,6 +18,8 @@ type AnimationInstance = {
   setDirection: (direction: 1 | -1) => void;
   playSegments: (segments: [number, number], force?: boolean) => void;
   goToAndStop: (value: number, isFrame?: boolean) => void;
+  play: () => void;
+  pause: () => void;
   totalFrames: number;
   addEventListener: (name: string, callback: () => void) => void;
 };
@@ -36,7 +38,7 @@ type Props = ComponentProps<typeof defaultTag> & {
   speed?: number;
 
   /**
-   * Play the animation in reverse. Only applies in loop mode.
+   * Play the animation in reverse. Only applies to loop behaviors.
    * @default false
    */
   playReverse?: boolean;
@@ -52,12 +54,20 @@ type Props = ComponentProps<typeof defaultTag> & {
    * - "loop": plays and loops continuously.
    * - "toggle on click": click to toggle between open and closed.
    * - "toggle on hover": plays forward on hover, reverses on mouse out.
+   * - "loop on click": click to start looping, click again to pause.
+   * - "loop on hover": loops while hovered, pauses on mouse out.
    * @default "loop"
    */
-  behavior?: "loop" | "toggle on click" | "toggle on hover";
+  behavior?:
+    | "loop"
+    | "toggle on click"
+    | "toggle on hover"
+    | "loop on click"
+    | "loop on hover";
 
   /**
-   * Controlled open/closed state for toggle behavior.
+   * Controlled state for click and hover behaviors: open/closed for toggle
+   * behaviors, playing/paused for "loop on click" and "loop on hover".
    * When defined, overrides the internal state. Bind to a variable
    * when the animation state needs to be shared with other elements.
    */
@@ -89,10 +99,17 @@ export const LottiePlayer = forwardRef<Ref, Props>(
     // Tracks open state directly without React re-renders
     const openStateRef = useRef(isOpen ?? false);
 
-    const isLoopMode = behavior === "loop";
-    const isToggleMode = behavior === "toggle on click";
-    const isHoverMode = behavior === "toggle on hover";
-    const isControlledMode = isToggleMode || isHoverMode;
+    // Loop behaviors play the whole animation repeatedly; toggle behaviors
+    // play it once forward (open) or backward (closed).
+    const isLoopMode =
+      behavior === "loop" ||
+      behavior === "loop on click" ||
+      behavior === "loop on hover";
+    const isClickMode =
+      behavior === "toggle on click" || behavior === "loop on click";
+    const isHoverMode =
+      behavior === "toggle on hover" || behavior === "loop on hover";
+    const isControlledMode = isClickMode || isHoverMode;
 
     const { renderer } = useContext(ReactSdkContext);
 
@@ -105,6 +122,27 @@ export const LottiePlayer = forwardRef<Ref, Props>(
       const lastFrame = total - 1;
       anim.playSegments(open ? [0, lastFrame] : [lastFrame, 0], true);
     }, []);
+
+    // Applies the open (toggle) / playing (loop) state of click and hover
+    // behaviors.
+    const setActive = useCallback(
+      (active: boolean) => {
+        if (isLoopMode === false) {
+          playSegment(active);
+          return;
+        }
+        const anim = animRef.current;
+        if (!anim) {
+          return;
+        }
+        if (active) {
+          anim.play();
+        } else {
+          anim.pause();
+        }
+      },
+      [isLoopMode, playSegment]
+    );
 
     // Create / destroy the animation when source or display settings change
     useEffect(() => {
@@ -125,7 +163,7 @@ export const LottiePlayer = forwardRef<Ref, Props>(
           container,
           renderer: "svg",
           loop: isLoopMode,
-          autoplay: isLoopMode,
+          autoplay: isLoopMode && isControlledMode === false,
           path: src,
         }) as AnimationInstance;
 
@@ -138,10 +176,17 @@ export const LottiePlayer = forwardRef<Ref, Props>(
             return;
           }
           totalFramesRef.current = anim.totalFrames;
-          if (isControlledMode) {
-            const lastFrame = anim.totalFrames - 1;
-            anim.goToAndStop(openStateRef.current ? lastFrame : 0, true);
+          if (isControlledMode === false) {
+            return;
           }
+          if (isLoopMode) {
+            if (openStateRef.current) {
+              anim.play();
+            }
+            return;
+          }
+          const lastFrame = anim.totalFrames - 1;
+          anim.goToAndStop(openStateRef.current ? lastFrame : 0, true);
         });
       });
 
@@ -168,8 +213,8 @@ export const LottiePlayer = forwardRef<Ref, Props>(
         return;
       }
       openStateRef.current = isOpen;
-      playSegment(isOpen);
-    }, [isOpen, isControlledMode, playSegment]);
+      setActive(isOpen);
+    }, [isOpen, isControlledMode, setActive]);
 
     if (!src) {
       return (
@@ -214,25 +259,25 @@ export const LottiePlayer = forwardRef<Ref, Props>(
     }
 
     const handleClick =
-      isToggleMode && isOpen === undefined
+      isClickMode && isOpen === undefined
         ? () => {
             const newOpen = !openStateRef.current;
             openStateRef.current = newOpen;
-            playSegment(newOpen);
+            setActive(newOpen);
           }
         : rest.onClick;
 
     const handleMouseEnter = isHoverMode
       ? () => {
           openStateRef.current = true;
-          playSegment(true);
+          setActive(true);
         }
       : rest.onMouseEnter;
 
     const handleMouseLeave = isHoverMode
       ? () => {
           openStateRef.current = false;
-          playSegment(false);
+          setActive(false);
         }
       : rest.onMouseLeave;
 
