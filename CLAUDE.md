@@ -1,295 +1,105 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Community fork of Webstudio for self-hosting. pnpm monorepo: `apps/builder`
+(Remix + Vite), `packages/`, `fixtures/`. Node 22, pnpm only.
 
-## Community Fork Maintenance
+## Fork maintenance
 
-This is a community fork. `develop` is maintained as `upstream/main` + a small patch series of thematic commits (listed in `COMMUNITY_CHANGES.md`), rebased on top of upstream at every sync. New PRs are squash-merged on `develop`, then folded into the relevant patch (or added as a new one, updating the list in `COMMUNITY_CHANGES.md`) at the next regroup. Regroup is automated: after each `sync-upstream`, the `check-stack` job fires the regroup routine when `develop` has more than 18 patch commits over `main` (`regroup_threshold` input; re-stamp excluded); the routine rebuilds the series on `regroup/<yyyymm>` and opens a PR to `main` whose body carries an `Expected-Develop: <sha>` line, and `promote-regroup.yml` force-moves `develop` to it (backup tag first) once `Main workflow` is green. Mails of the `webstudio-issues-weekly` routine carry a button that opens a `routine-approval` issue here; `approve-routine.yml` checks it (admin, open PR with pinned head sha, or `needs-validation` issue) and merges the PR itself (the sandbox refuses the routine merging its own PR) or fires the routine in `finalize` mode to start the L issue plan, and fires it for cleanup and report after a merge. Every PR states which patch it belongs to in a `Patch: <title>` line of its description (see the PR template). When a contribution is accepted upstream, drop it from the series and from the list.
+- `develop` = `upstream/main` + a short series of thematic patches, listed in
+  `COMMUNITY_CHANGES.md` and rebased at every upstream sync.
+- PRs are squash-merged into `develop`, each with a `Patch: <title>` line in its
+  description. The regroup routine later folds them into their patch.
+- Regroup and sync conflicts are automated: `sync-upstream.yml` fires the
+  routines, which open a `regroup/*` or `sync/rebase-*` PR to `main`;
+  `promote-regroup.yml` moves `develop` to it when CI is green (or red only
+  where upstream is red too).
+- `approve-routine.yml` handles the approval issues opened from the
+  `webstudio-issues-weekly` mails.
+- A patch accepted upstream is dropped from the series and from the list.
 
-### Fixture bundleVersion
+## Fixture `bundleVersion`
 
-`bundleVersion` (in `packages/protocol/src/schema.ts`) is a contract hash of the schema. The fork's self-hosting patches change the schema, so its hash differs from the (upstream-generated) stamps committed in `fixtures/*/.webstudio/data.json`, failing `fixtures.test.ts`. After changing the bundle schema — or after an upstream sync — run `pnpm fixtures:restamp` and commit. The `sync-upstream` workflow already does this automatically after a clean rebase; `pnpm fixtures:restamp --check` fails on drift (CI).
+`bundleVersion` (`packages/protocol/src/schema.ts`) hashes the schema. Fork
+schema patches change it, so the upstream fixture stamps fail
+`fixtures.test.ts`: run `pnpm fixtures:restamp` after a schema change
+(`sync-upstream` does it after each rebase and auto-resolves stamp-only
+conflicts).
 
-The officially-published `webstudio` npm CLI is built from upstream's schema, so it sends the upstream hash — any fork-only field added to `publishedProjectBundle` that stays in the hash breaks that CLI against a self-hosted fork instance for every version, not just old ones (see `assertCliBundleVersion` in `apps/builder/app/services/build-router.server.ts`). Fork-only additive fields the CLI itself never reads/writes (e.g. `customDomains`, server->publisher only) must be `.omit()`-ed from the schema passed to `createContractVersion` so the hash stays aligned with upstream's.
+The npm `webstudio` CLI sends upstream's hash. A fork-only field the CLI never
+reads (e.g. `customDomains`) must be `.omit()`-ed before `createContractVersion`,
+or that CLI breaks against every fork instance.
 
-Because both sides re-generate that stamp, it conflicts on most syncs even though it is not real content. The `sync-upstream` workflow therefore **auto-resolves rebase conflicts that touch only `fixtures/*/.webstudio/data.json`** (takes the upstream stamp, then re-stamps), and only opens a manual-conflict issue when a real code file also conflicts. These fixture files are force-tracked despite the `.webstudio` ignore rule — the negations in `.gitignore` keep the pre-commit hook from choking on re-stamps.
-
-## Overview
-
-Webstudio is an Open Source Visual Development Platform. This is a pnpm monorepo with three workspace types: `apps/`, `packages/`, and `fixtures/`.
-
-- **Node.js**: 22 (see `.nvmrc`)
-- **Package manager**: pnpm 9.14.4 (do not use npm or yarn)
-
-## Common Commands
-
-```bash
-# Development
-pnpm dev                    # Start builder app dev server (Remix + Vite)
-
-# Build
-pnpm build                  # Build all packages (excludes fixtures)
-
-# Testing & Checks
-pnpm checks                 # Run tests + typecheck + lint + fixtures (full CI)
-pnpm test                   # Run tests across all packages
-pnpm typecheck              # TypeScript type-check all packages
-pnpm lint                   # ESLint with max-warnings 0
-
-# Formatting
-pnpm format                 # Prettier format all TS/TSX/MD files
-
-# Single test file (from repo root)
-pnpm --filter='@webstudio-is/builder' test -- run path/to/file.test.ts
-# Or from apps/builder/
-pnpm test -- run path/to/file.test.ts
-```
-
-### Builder App
+## Commands
 
 ```bash
-cd apps/builder
-pnpm dev          # Dev server (also pre-builds http-client)
-pnpm dev:auth     # Dev server with OAuth debug logging
-pnpm build        # Production build
-pnpm typecheck    # Uses tsgo (TypeScript native preview) for speed
-pnpm test         # vitest run
-```
-
-## Local Development (Docker)
-
-The builder requires PostgreSQL + PostgREST running locally. `apps/builder/backend/` provides both: a base `compose.yaml` plus one override per mode (`compose.development.yaml` for day-to-day dev, `compose.test.yaml` / `compose.snapshot.yaml` / `compose.supabase.yaml` for e2e). Drive it with `pnpm backend <mode> <docker compose args>` — never `docker compose` directly, since the mode selects which override file is layered on.
-
-**Windows setup**: Docker runs in WSL; all pnpm commands run in PowerShell. Do not mix — `node_modules` installed from Windows contains Windows binaries and will break if used from WSL, and vice versa.
-
-### First-time setup (Windows + WSL Docker)
-
-**1. Configure pnpm to use Git Bash** — create `webstudio-fork/.npmrc` (gitignored, not committed):
-
-```
-script-shell=C:\Program Files\Git\bin\bash.exe
-```
-
-This lets pnpm run build scripts that use `rm -rf` on Windows. Requires [Git for Windows](https://git-scm.com/download/win).
-
-**2. Install dependencies** (PowerShell, repo root):
-
-```powershell
-pnpm install
-```
-
-**3. After pulling upstream changes** — upstream's `pnpm-lock.yaml` may not include direct dep specifiers added by this fork (e.g. `compression`). Regenerate the lockfile before building:
-
-```powershell
-pnpm install --no-frozen-lockfile
-```
-
-**4. Build internal packages** (PowerShell, repo root — first time only, or after pulling upstream changes):
-
-```powershell
-pnpm -r --filter='./packages/**' build
-```
-
-> `pnpm build` (without filter) will fail on `packages/cli` due to a known issue with the proprietary animation package banner. This does not affect the dev server.
-
-**4. Start the containers** (WSL):
-
-```bash
-cd /path/to/webstudio-fork/apps/builder
-pnpm backend development up -d
-```
-
-This starts:
-
-- **PostgreSQL 15** (Supabase image) published on `PGPORT` (`55432` in `.env`)
-- **PostgREST v12** published on `POSTGREST_PORT` (`55433` in `.env`)
-
-Credentials come from the committed `apps/builder/.env` (`POSTGRES_USER=supabase_admin`,
-`POSTGRES_PASSWORD=pass`, `POSTGRES_DB=webstudio`), and `POSTGREST_API_KEY` is empty
-locally — the local PostgREST container needs no JWT. Do not set `POSTGRES_USER` in
-the compose file: the Supabase image bootstraps its own roles as `supabase_admin` and
-overriding it breaks the image's init scripts.
-
-> If you have a local PostgreSQL service on Windows, stop it first: `Stop-Service postgresql-x64-17`
-
-**5. Run migrations** (PowerShell, repo root — first time only, or after schema changes):
-
-```powershell
+pnpm dev                                                    # builder
+pnpm --filter='@webstudio-is/builder' test -- run <file>    # one test file
+pnpm -r --filter='./packages/**' build                      # internal packages
 pnpm migrations migrate
 ```
 
-**6. Start the builder** (PowerShell, from `apps/builder`):
+Full `pnpm checks` / `typecheck` / `build` are too heavy for the Pi: let CI run
+them.
 
-```powershell
-$env:DOCKER_DEV="true"; pnpm dev
-```
+## Local backend
 
-> `DOCKER_DEV=true` makes Vite bind on `0.0.0.0` instead of `wstd.dev`. Must be set as a shell variable — `.env.development` is not read by `vite.config.ts` at startup.
+`apps/builder/backend/` holds PostgreSQL + PostgREST: `pnpm backend development up -d`
+(never plain `docker compose`: the mode picks the override file). Credentials
+come from the committed `apps/builder/.env`; don't set `POSTGRES_USER` (the
+Supabase image bootstraps `supabase_admin`).
 
-**7. Open the builder**: `https://localhost:5173`
+Start the builder with `DOCKER_DEV=true pnpm dev` (a shell variable, not read
+from `.env.development`), then open `https://localhost:5173` and log in with
+`AUTH_SECRET` (`1234`).
 
-- Bypass the certificate warning (cert is for `wstd.dev`, not `localhost`)
-- Login with the secret from `AUTH_SECRET` in `.env.development` (default: `1234`)
-- First load is slow — Vite pre-bundles dependencies. Wait, then refresh the page.
+After an upstream sync, `pnpm install --no-frozen-lockfile` may be needed:
+upstream's lockfile lacks fork-only dependencies.
 
-### Daily startup
+## Pitfalls
 
-```bash
-# WSL
-pnpm backend development up -d   # from apps/builder
-```
+- **`__Host-` cookies need HTTPS.** `ALLOW_INSECURE_COOKIES=true` drops the
+  prefix and `Secure` for plain-HTTP testing; refused in production.
+- **Standalone deploy.** `pnpm --prod deploy /standalone` only links direct
+  dependencies of `apps/builder`: a transitive-only runtime import crashes with
+  `ERR_MODULE_NOT_FOUND`. Declare it directly in `apps/builder/package.json`.
+  `verify-standalone-deps.yml` checks the bundle; `docker-publish.yml` only
+  publishes after it passes, from the verified commit.
+- **Generated sites install `@webstudio-is/*` from npm (upstream).** A fork fix
+  in those packages never reaches published sites: ship it through the CLI
+  templates.
+- **Testing a builder branch:** deploy its `builder:<branch>` image; the
+  publisher runs the CLI that image serves on `/npm/`.
+- `sdk-components-animation` is proprietary: never modify it.
 
-```powershell
-# PowerShell, from apps/builder
-$env:DOCKER_DEV="true"; pnpm dev
-```
+## Conventions
 
-### Resetting node_modules
+Enforced by oxlint: kebab-case files, named React imports, arrow functions,
+`node:` imports, no `console.log`, `===`.
 
-Always delete from PowerShell (fast), then reinstall from PowerShell:
+- Vitest, tests next to the source. `*.browser.test.tsx` run in Chromium (CI
+  only); `vi.mock` misses pre-bundled deps there, use `vi.spyOn`.
+- `~` → `apps/builder/app/`. `__generated__/` is not linted.
+- Export condition `"webstudio"` splits builder code from site runtime.
 
-```powershell
-Remove-Item -Recurse -Force node_modules
-pnpm install
-pnpm -r --filter='./packages/**' build
-```
+## Comments & commits
 
-### Environment files
+Match upstream Webstudio: comments are rare (<1 % of lines).
 
-| File                            | Purpose                                                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `apps/builder/.env`             | Default config (DB URL, PostgREST URL, `DEV_LOGIN=true`)                                                      |
-| `apps/builder/.env.development` | Local overrides (`AUTH_SECRET=1234`, `DOCKER_DEV=true`)                                                       |
-| `apps/builder/.npmrc`           | pnpm hoisting config — forces `react-router-dom` top-level symlink in `pnpm deploy --prod` (Docker image fix) |
-
-Both env files are committed. Edit `.env.development` for machine-specific overrides.
-
-### Session cookies require HTTPS (`__Host-` prefix)
-
-Session/CSRF/returnTo cookies (`session.server.ts`, `builder-session.server.ts`,
-`csrf-session.server.ts`, `cookie.server.ts`) use the `__Host-` prefix, which
-browsers only accept over HTTPS — this is why local dev serves the builder at
-`https://localhost:5173` with a self-signed cert instead of plain HTTP. For
-deployments that can't put TLS in front of the app (e.g. testing
-`webstudio-self-host`'s `docker-compose.yml` on bare `http://localhost`), set
-`ALLOW_INSECURE_COOKIES=true` to drop both the `__Host-` prefix and the
-`Secure` flag together (`secureCookieName()` in `env.server.ts`). This is
-refused at startup when `DEPLOYMENT_ENVIRONMENT=production` — never set it on
-a real deployment.
-
-### Standalone deploy gotcha (`apps/builder/Dockerfile`)
-
-`pnpm --filter "@webstudio-is/builder" --prod deploy /standalone` only creates top-level
-`node_modules` symlinks for `apps/builder`'s **direct** dependencies. A package used at
-runtime only as a _transitive_ dependency (e.g. pulled in by a workspace package like
-`@webstudio-is/project-build`) stays nested in the pnpm virtual store with no top-level
-symlink, so Node's ESM resolution fails from the bundled server output
-(`ERR_MODULE_NOT_FOUND`) even though the package built fine. Seen with `react-router-dom`
-(fixed via manual symlink in the Dockerfile) and `parse5` (fixed by declaring it as a
-direct dependency in `apps/builder/package.json`). If a similar error shows up for another
-package, check whether it's declared directly in `apps/builder/package.json` first.
-
-`scripts/verify-standalone-deps.mjs` checks for this automatically: it scans the
-compiled server bundle for bare imports and confirms each resolves from a given
-pruned `node_modules`. It uses a small string/comment/regex-literal-aware scanner,
-not a plain regex — the bundle vendors a JS parser (acorn, via Vite) whose own
-source contains text that looks like import syntax without being any (e.g.
-`kw("import", startsExpr)` keyword tables, or `from` as an ordinary parameter
-name), which a regex has no way to tell apart from real code since it can't
-see "inside a string literal". `.github/workflows/verify-standalone-deps.yml`
-runs it against the Dockerfile's `builder` stage on every PR into `develop` (fast
-feedback, non-blocking) and on every push to `develop`. `docker-publish.yml`
-doesn't build on that same push trigger directly — it watches
-verify-standalone-deps's runs via a `workflow_run` trigger and only builds/
-publishes an image once one of them succeeds on `develop`, gated by
-`github.event.workflow_run.conclusion == 'success'`. That decouples the two
-workflows entirely: docker-publish.yml doesn't even start until the check has
-already passed, instead of racing it or (as two earlier iterations of this did)
-gating on a `needs:` chain — GitHub Actions' default `success()` job condition
-walks the whole _transitive_ needs graph, not just direct `needs:`, so a check
-job skipped by design on non-push events silently skipped every job downstream
-of it too. Since `workflow_run` fires after develop's tip may have already
-moved past the verified commit, the `build` job explicitly checks out
-`github.event.workflow_run.head_sha` (via its job-level `SOURCE_SHA` env) rather
-than the default (which would grab develop's current tip) — otherwise a push
-landing in that gap could slip an unverified commit into the published image.
-
-### Testing a builder branch (no publisher image needed)
-
-Each builder image serves its own CLI on `/npm/` (`@webstudio-community/cli`), and
-`webstudio-publisher` runs that CLI with `npx` against `BUILDER_INTERNAL_URL` — there
-is no builder ↔ publisher lockstep anymore. To publish-test a PR branch, deploy its
-`builder:<branch>` image next to the regular publisher image. On PRs the builder image
-is built from the PR head sha (`SOURCE_SHA`), not GitHub's ephemeral merge commit.
-
----
-
-## Architecture
-
-### Monorepo Structure
-
-```
-apps/builder/          # Main visual builder UI (Remix + Vite)
-packages/              # 33 shared packages
-fixtures/              # Template projects for deployment targets
-```
-
-### Main App (`apps/builder`)
-
-Remix fullstack application. The `app/` directory structure:
-
-- `canvas/` — Iframe canvas rendering the user's page for editing
-- `builder/` — Builder UI panels (style, settings, navigator, topbar, etc.)
-  - `features/` — Feature modules (style-panel, settings-panel, breakpoints, etc.)
-  - `shared/` — Shared builder utilities (stores, asset management, etc.)
-- `dashboard/` — Project dashboard
-- `routes/` — Remix routes
-- `shared/` — App-wide utilities
-
-The builder communicates with the canvas via `postMessage`. State is managed with [nanostores](https://github.com/nanostores/nanostores).
-
-### Key Packages
-
-| Package                                    | Purpose                                                |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `@webstudio-is/sdk`                        | Core data model and Zod schemas for Webstudio projects |
-| `@webstudio-is/react-sdk`                  | Runtime API for rendering Webstudio projects in React  |
-| `@webstudio-is/design-system`              | UI component library (Radix UI + Stitches)             |
-| `@webstudio-is/css-engine`                 | CSS generation and runtime styling                     |
-| `@webstudio-is/css-data` / `html-data`     | CSS/HTML specs and metadata                            |
-| `@webstudio-is/sdk-components-react`       | Default component library                              |
-| `@webstudio-is/sdk-components-react-radix` | Radix UI component integrations                        |
-| `@webstudio-is/trpc-interface`             | tRPC router definitions (client-server API)            |
-| `@webstudio-is/prisma-client`              | Prisma ORM database layer                              |
-| `@webstudio-is/cli`                        | CLI for linking/syncing/building projects              |
-
-### Export Conditions
-
-Packages use a custom `"webstudio"` export condition to split code between design-time (builder) and runtime (user's site). Tests resolve this with `conditions: ["webstudio", "browser"]`.
-
-## Code Conventions (Enforced by ESLint)
-
-- **Filenames**: kebab-case required (`unicorn/filename-case`)
-- **React imports**: No default imports — use named imports (`import { useState } from "react"`, not `import React from "react"`)
-- **Functions**: Expression style required (`const foo = () => {}`, not `function foo() {}`)
-- **Node imports**: Use `node:` protocol (`node:path`, not `path`)
-- **Console**: Only `console.warn`, `console.error`, `console.info` allowed (no `console.log`)
-- **Equality**: Always `===` (except null comparisons)
-
-## Testing
-
-- **Framework**: Vitest with jsdom environment
-- Test files live alongside source as `*.test.ts` / `*.test.tsx`
-- Path alias `~` resolves to `apps/builder/app/` in builder tests
-- Coverage via `@vitest/coverage-v8`
-
-## TypeScript
-
-- Shared base config in `packages/tsconfig`
-- Target ES2023, strict mode enabled
-- Builder uses `tsgo` (TypeScript native preview) for `typecheck` speed
-- Generated files in `__generated__/` directories are excluded from lint
-
-## Pre-commit Hooks
-
-nano-staged runs Prettier on staged `*.{ts,tsx,js,json,css,md}` files automatically.
+- No comment by default; a clear name beats a comment. Comment only a
+  non-obvious *why*: external constraint, workaround, trap, required order.
+  - ✅ `// Navigation can discard Chrome's body before the next DOM poll.`
+  - ❌ `// Check if any custom domains are selected` (restates the code)
+- One line, plain English, present tense; three lines at most.
+- JSDoc only for a non-trivial exported API, `@deprecated`, or component props
+  (they feed the builder's prop descriptions); no `@param` / `@returns` that
+  repeat the signature.
+- Never: our own issue/PR numbers, history ("now", "used to", "fix:"), section
+  banners, emojis, French, step numbering that mirrors the code. An upstream
+  issue link that tells when to drop a workaround is fine. In upstream files,
+  prefix fork-only comments with `Community fork:`.
+- Config files (YAML, `.env`, Dockerfile, nginx): one line for each non-obvious
+  setting.
+- Commits: `type(scope): summary`, imperative, lowercase, ≤ 72 chars, English,
+  one `(#n)` at most. Body: why, in short prose.
+- PRs: problem, cause, fix in 1–2 paragraphs; a `- [x]` checklist of the checks
+  actually run; `Patch: <title>`; `Closes #n` / `Ref #n` last.
