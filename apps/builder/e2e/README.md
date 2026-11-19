@@ -27,6 +27,12 @@ input changes, refresh the snapshot and commit the new file:
 pnpm e2e:builder:refresh-schema-cache
 ```
 
+Community fork: CI does not require the committed snapshot. When the file for
+the current fingerprint is missing (the fork's migrations and lockfile never
+match upstream's), the CI job that compiles Builder generates it with the same
+command, caches it by fingerprint and passes it to the shards as the
+`builder-e2e-schema` artifact.
+
 The regular E2E suite uses lightweight PostgreSQL containers. Verify that the
 complete migration chain also applies to the pinned Supabase PostgreSQL image
 with:
