@@ -37,6 +37,48 @@ runs:
         '
         echo "value=$shards" >> "$GITHUB_OUTPUT"
 
+    # Community fork: the fork's migrations (and any lockfile change) give a
+    # schema fingerprint upstream never commits a snapshot for, so the snapshot
+    # is generated here when missing, cached by fingerprint, and handed to the
+    # shards through the builder-e2e-schema artifact. Runs before the Builder
+    # build so shards waiting on it are not delayed by the build.
+    - name: Identify schema snapshot
+      id: schema
+      shell: bash
+      run: |
+        ROOT_DIR="$PWD"
+        source apps/builder/backend/lib.sh
+        fingerprint="$(builder_backend_schema_fingerprint)"
+        echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+        echo "path=apps/builder/e2e/schema/schema-$fingerprint.sql" >> "$GITHUB_OUTPUT"
+
+    - name: Cache schema snapshot
+      id: schema-cache
+      if: hashFiles(steps.schema.outputs.path) == ''
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.schema.outputs.path }}
+        key: builder-e2e-schema-v1-${{ steps.schema.outputs.fingerprint }}
+
+    - name: Generate schema snapshot
+      shell: bash
+      env:
+        SCHEMA_SNAPSHOT: ${{ github.workspace }}/${{ steps.schema.outputs.path }}
+      run: |
+        if [ -s "$SCHEMA_SNAPSHOT" ]; then
+          echo "Using schema snapshot $SCHEMA_SNAPSHOT"
+          exit 0
+        fi
+        bash apps/builder/e2e/run.sh schema-cache
+        test -s "$SCHEMA_SNAPSHOT"
+
+    - name: Upload schema snapshot
+      uses: actions/upload-artifact@v6
+      with:
+        name: builder-e2e-schema
+        retention-days: 7
+        path: ${{ steps.schema.outputs.path }}
+
     - name: Identify Builder build inputs
       id: build-key
       shell: bash
@@ -69,22 +111,6 @@ runs:
         test -d apps/builder/build/server
         test -d apps/builder/build/client/assets
         test -f packages/sdk-components-react-router/lib/components.js
-
-    - name: Identify schema snapshot
-      id: schema
-      shell: bash
-      run: |
-        ROOT_DIR="$PWD"
-        source apps/builder/backend/lib.sh
-        echo "fingerprint=$(builder_backend_schema_fingerprint)" >> "$GITHUB_OUTPUT"
-
-    - name: Check schema snapshot
-      shell: bash
-      run: |
-        test -s "apps/builder/e2e/schema/schema-${{ steps.schema.outputs.fingerprint }}.sql" || {
-          echo "Generate and commit the Builder E2E schema with pnpm e2e:builder:refresh-schema-cache" >&2
-          exit 1
-        }
 
     - name: Upload prerequisites
       uses: actions/upload-artifact@v6
