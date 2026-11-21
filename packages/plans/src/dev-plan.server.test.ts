@@ -6,7 +6,8 @@ import {
   json,
   empty,
 } from "@webstudio-is/postgrest/testing";
-import { applyDevPlan } from "./dev-plan.server";
+import { applyDevPlan, devPlanMeta } from "./dev-plan.server";
+import { defaultPlanFeatures } from "./plan-features";
 
 const server = createTestServer();
 
@@ -80,5 +81,18 @@ describe("applyDevPlan (msw)", () => {
     await expect(
       applyDevPlan("dev@example.com", "Pro", testContext)
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("devPlanMeta boolean flags", () => {
+  test("all boolean flags from defaultPlanFeatures are true", () => {
+    for (const [key, value] of Object.entries(defaultPlanFeatures)) {
+      if (typeof value === "boolean") {
+        expect(
+          devPlanMeta[key as keyof typeof devPlanMeta],
+          `Boolean flag "${key}" should be true in devPlanMeta`
+        ).toBe(true);
+      }
+    }
   });
 });
