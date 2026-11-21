@@ -75,6 +75,11 @@ type Product = { id: string; name: string; meta: unknown };
 // The promise itself is cached to deduplicate concurrent cold-start requests.
 let productCachePromise: Promise<Map<string, Product>> | undefined;
 
+/** Drop the cached products so the next read sees fresh Product rows (e.g. after applyDevPlan). */
+export const clearProductCache = () => {
+  productCachePromise = undefined;
+};
+
 const fetchProducts = (
   postgrest: PostgrestContext
 ): Promise<Map<string, Product>> =>

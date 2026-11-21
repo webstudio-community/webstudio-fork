@@ -1,5 +1,6 @@
 import type { Client } from "@webstudio-is/postgrest/index.server";
 import { defaultPlanFeatures, type PlanFeatures } from "./plan-features";
+import { clearProductCache } from "./plan-client.server";
 
 type PostgrestContext = { client: Client };
 
@@ -84,6 +85,9 @@ export const applyDevPlan = async (
       );
       return;
     }
+    // getPlanInfo caches Product rows for the process lifetime: without this the
+    // rewritten meta is ignored until the builder restarts.
+    clearProductCache();
 
     const txResult = await postgrest.client.from("TransactionLog").upsert({
       eventId: `dev-${userId}`,
