@@ -6,16 +6,23 @@ type PostgrestContext = { client: Client };
 /**
  * Full feature set for self-hosted dev plans.
  * Mirrors what a paid Stripe webhook would write into Product.meta on SaaS.
- * All boolean flags enabled, numeric limits set to generous self-host defaults.
+ * - All boolean flags automatically enabled from defaultPlanFeatures
+ * - Numeric limits set to generous self-host defaults
+ * Future upstream boolean flags are covered automatically.
  */
-const devPlanMeta: PlanFeatures = {
-  ...defaultPlanFeatures,
-  canDownloadAssets: true,
-  canRestoreBackups: true,
-  allowAdditionalPermissions: true,
-  allowDynamicData: true,
-  allowContentMode: true,
-  allowStagingPublish: true,
+export const devPlanMeta: PlanFeatures = {
+  ...Object.entries(defaultPlanFeatures).reduce<Partial<PlanFeatures>>(
+    (acc, [key, value]) => {
+      if (typeof value === "boolean") {
+        (acc as Record<string, unknown>)[key] = true;
+      } else {
+        (acc as Record<string, unknown>)[key] = value;
+      }
+      return acc;
+    },
+    {}
+  ),
+  // Override numeric limits to generous self-host defaults
   maxContactEmailsPerProject: 1000,
   maxDomainsAllowedPerUser: 1000,
   maxDailyPublishesPerUser: 1000,
@@ -23,7 +30,7 @@ const devPlanMeta: PlanFeatures = {
   maxProjectsAllowedPerUser: 1000,
   maxAssetsPerProject: 10000,
   maxSeatsPerWorkspace: 100,
-};
+} as PlanFeatures;
 
 /**
  * Upsert or delete dev plan rows in the DB for the given user email.
