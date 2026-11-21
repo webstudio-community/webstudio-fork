@@ -1,0 +1,22 @@
+name: Triage issues
+
+# Manual trigger of the webstudio-issues-weekly triage.
+on:
+  workflow_dispatch
+
+jobs:
+  triage:
+    name: Fire issues routine
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fire routine
+        env:
+          ROUTINE_FIRE_URL: ${{ secrets.ISSUES_ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ISSUES_ROUTINE_FIRE_TOKEN }}
+        run: |
+          curl -fsS -X POST "$ROUTINE_FIRE_URL" \
+            -H "Authorization: Bearer $ROUTINE_FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d '{"text":"manual run"}'
