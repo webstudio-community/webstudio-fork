@@ -92,7 +92,9 @@ const PrePublishInstanceLink = ({
   );
 };
 
-const getPrePublishAuditFindings = (): DiagnosticFinding[] => {
+const getPrePublishAuditFindings = (
+  renderMode?: string
+): DiagnosticFinding[] => {
   const findings = runPrePublishAudit({
     pages: $pages.get(),
     instances: $instances.get(),
@@ -101,6 +103,8 @@ const getPrePublishAuditFindings = (): DiagnosticFinding[] => {
     resources: $resources.get(),
     assets: $assets.get(),
     metas: $registeredComponentMetas.get(),
+    renderMode:
+      renderMode === "ssg" || renderMode === "ssr" ? renderMode : undefined,
   });
   return findings.flatMap((finding) => {
     if (finding.severity !== "error" && finding.severity !== "warning") {
@@ -142,11 +146,12 @@ const getPrePublishAuditFindings = (): DiagnosticFinding[] => {
 
 export const runPublishDiagnostics = async (
   projectId: Project["id"],
-  domains?: string[]
+  domains?: string[],
+  renderMode?: string
 ) => {
   const cssBuildWarningText =
     "Some project styles cannot be processed for publishing. Publishing can continue using base and font styles.";
-  const auditFindings = getPrePublishAuditFindings();
+  const auditFindings = getPrePublishAuditFindings(renderMode);
   const validation =
     domains === undefined
       ? undefined
@@ -190,10 +195,11 @@ export const runPublishDiagnostics = async (
 
 export const runPublishValidation = async (
   projectId: Project["id"],
-  domains: string[]
+  domains: string[],
+  renderMode?: string
 ) => {
   await flushExternalContentProject({ projectId });
-  return runPublishDiagnostics(projectId, domains);
+  return runPublishDiagnostics(projectId, domains, renderMode);
 };
 
 export const reportPublishValidationFailure = (
