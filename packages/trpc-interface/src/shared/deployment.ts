@@ -92,7 +92,13 @@ export const deploymentRouter = router({
           };
         }
 
-        return { success: true };
+        // Tolerate older publishers that don't return logHandle
+        try {
+          const responseBody = (await response.json()) as { logHandle?: string };
+          return { success: true, logHandle: responseBody.logHandle };
+        } catch {
+          return { success: true };
+        }
       } catch (error) {
         return {
           success: false,
@@ -148,24 +154,36 @@ export const deploymentRouter = router({
       }
 
       try {
-        const url = new URL(`${publisherUrl}/logs/${encodeURIComponent(input.buildId)}`);
+        const url = new URL(
+          `${publisherUrl}/logs/${encodeURIComponent(input.buildId)}`
+        );
         if (input.cursor !== undefined) {
           url.searchParams.set("cursor", String(input.cursor));
         }
-        url.searchParams.set("includeLog", "true");
-
-        const response = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${process.env.TRPC_SERVER_API_TOKEN ?? ""}`,
-          },
-        });
-
-        if (!response.ok) {
-          return { availability: "unavailable" as const };
+        if (input.includeLog === true) {
+          url.searchParams.set("includeLog", "true");
         }
 
-        const data = await response.json();
-        return publishLogOutput.parse(data);
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        try {
+          const response = await fetch(url.toString(), {
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${process.env.TRPC_SERVER_API_TOKEN ?? ""}`,
+            },
+          });
+
+          if (!response.ok) {
+            return { availability: "unavailable" as const };
+          }
+
+          const data = await response.json();
+          return publishLogOutput.parse(data);
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
       } catch {
         return { availability: "unavailable" as const };
       }

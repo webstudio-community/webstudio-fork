@@ -55,7 +55,9 @@ describe("deployment log retrieval", () => {
     process.env.SELF_HOSTED_PUBLISHER_URL = "http://publisher:4000";
     process.env.TRPC_SERVER_API_TOKEN = "test-token";
 
-    const logContent = Buffer.from("[12:34:56] [sync] Syncing build data").toString("base64url");
+    const logContent = Buffer.from(
+      "[12:34:56] [sync] Syncing build data"
+    ).toString("base64url");
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -189,5 +191,73 @@ describe("deployment log retrieval", () => {
       expect.stringContaining("cursor=300000"),
       expect.any(Object)
     );
+  });
+
+  test("getPublishLog respects includeLog parameter", async () => {
+    process.env.SELF_HOSTED_PUBLISHER_URL = "http://publisher:4000";
+    process.env.TRPC_SERVER_API_TOKEN = "test-token";
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ availability: "available", outcome: "succeeded" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { deploymentRouter } = await import("./deployment");
+    const caller = deploymentRouter.createCaller({} as any);
+
+    // includeLog not set — should not add parameter
+    await caller.getPublishLog({
+      buildId: "test-build-id",
+      logHandle: "test-build-id",
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.not.stringContaining("includeLog"),
+      expect.any(Object)
+    );
+  });
+
+  test("publish tolerates older publishers without logHandle", async () => {
+    process.env.SELF_HOSTED_PUBLISHER_URL = "http://publisher:4000";
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true }), // no logHandle
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { deploymentRouter } = await import("./deployment");
+    const caller = deploymentRouter.createCaller({} as any);
+
+    const result = await caller.publish({
+      buildId: "test-id",
+      builderOrigin: "http://builder",
+      destination: "static",
+    });
+
+    expect(result).toEqual({ success: true });
+  });
+
+  test("publish handles non-JSON response gracefully", async () => {
+    process.env.SELF_HOSTED_PUBLISHER_URL = "http://publisher:4000";
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => {
+        throw new Error("Not valid JSON");
+      },
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { deploymentRouter } = await import("./deployment");
+    const caller = deploymentRouter.createCaller({} as any);
+
+    const result = await caller.publish({
+      buildId: "test-id",
+      builderOrigin: "http://builder",
+      destination: "static",
+    });
+
+    expect(result).toEqual({ success: true });
   });
 });
