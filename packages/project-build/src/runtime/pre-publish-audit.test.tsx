@@ -548,3 +548,203 @@ test("includes Content Block source integrity checks in the audit pipeline", () 
     },
   });
 });
+
+test("ResourceForm with managed form submission is incompatible with SSG mode", () => {
+  const { instances, props } = renderData(
+    <Body ws:id="body">
+      <ws.element ws:id="form" ws:component="ResourceForm" />
+    </Body>
+  );
+
+  // Manually add the action prop with FormSubmission value
+  props.set("action-prop", {
+    id: "action-prop",
+    instanceId: "form",
+    name: "action",
+    type: "json" as const,
+    value: [{ dataSourceId: "action-1" }],
+  });
+
+  const findings = runPrePublishAudit({
+    pages: createPages(marketEdgePage),
+    instances,
+    props,
+    dataSources: new Map(),
+    resources: new Map([
+      [
+        "action-1",
+        {
+          id: "action-1",
+          name: "Submit Action",
+          method: "post",
+          url: "https://example.com",
+          headers: [],
+        },
+      ],
+    ]),
+    assets: new Map(),
+    metas: componentMetas,
+    renderMode: "ssg",
+  });
+
+  expect(findings).toContainEqual({
+    ruleId: "ssg-incompatible-component",
+    severity: "warning",
+    message: expect.stringContaining(
+      "ResourceForm is not compatible with SSG mode"
+    ),
+    location: {
+      pageId: "marketedge",
+      pageName: "MarketEdge",
+      pagePath: "/marketedge",
+      instanceId: "form",
+      instanceSelector: expect.arrayContaining(["form"]),
+    },
+  });
+});
+
+test("ResourceForm in navigation mode (no action) is compatible with SSG", () => {
+  const { instances, props } = renderData(
+    <Body ws:id="body">
+      <ws.element ws:id="form" ws:component="ResourceForm" />
+    </Body>
+  );
+
+  const findings = runPrePublishAudit({
+    pages: createPages(marketEdgePage),
+    instances,
+    props,
+    dataSources: new Map(),
+    resources: new Map(),
+    assets: new Map(),
+    metas: componentMetas,
+    renderMode: "ssg",
+  });
+
+  const ssgWarnings = findings.filter(
+    (f) => f.ruleId === "ssg-incompatible-component"
+  );
+  expect(ssgWarnings).toHaveLength(0);
+});
+
+test("ResourceForm with actions is compatible with SSR mode", () => {
+  const { instances, props } = renderData(
+    <Body ws:id="body">
+      <ws.element ws:id="form" ws:component="ResourceForm" />
+    </Body>
+  );
+
+  // Manually add the action prop with FormSubmission value
+  props.set("action-prop", {
+    id: "action-prop",
+    instanceId: "form",
+    name: "action",
+    type: "json" as const,
+    value: [{ dataSourceId: "action-1" }],
+  });
+
+  const findings = runPrePublishAudit({
+    pages: createPages(marketEdgePage),
+    instances,
+    props,
+    dataSources: new Map(),
+    resources: new Map([
+      [
+        "action-1",
+        {
+          id: "action-1",
+          name: "Submit Action",
+          method: "post",
+          url: "https://example.com",
+          headers: [],
+        },
+      ],
+    ]),
+    assets: new Map(),
+    metas: componentMetas,
+    renderMode: "ssr",
+  });
+
+  const ssgWarnings = findings.filter(
+    (f) => f.ruleId === "ssg-incompatible-component"
+  );
+  expect(ssgWarnings).toHaveLength(0);
+});
+
+test("WebhookForm without resource is incompatible with SSG mode", () => {
+  const { instances, props } = renderData(
+    <Body ws:id="body">
+      <ws.element ws:id="form" ws:component="WebhookForm" />
+    </Body>
+  );
+
+  const findings = runPrePublishAudit({
+    pages: createPages(marketEdgePage),
+    instances,
+    props,
+    dataSources: new Map(),
+    resources: new Map(),
+    assets: new Map(),
+    metas: componentMetas,
+    renderMode: "ssg",
+  });
+
+  expect(findings).toContainEqual({
+    ruleId: "ssg-incompatible-component",
+    severity: "warning",
+    message: expect.stringContaining(
+      "WebhookForm is not compatible with SSG mode"
+    ),
+    location: {
+      pageId: "marketedge",
+      pageName: "MarketEdge",
+      pagePath: "/marketedge",
+      instanceId: "form",
+      instanceSelector: expect.arrayContaining(["form"]),
+    },
+  });
+});
+
+test("WebhookForm with resource is compatible with SSG mode", () => {
+  const { instances, props } = renderData(
+    <Body ws:id="body">
+      <ws.element ws:id="form" ws:component="WebhookForm" />
+    </Body>
+  );
+
+  // Manually add the action prop as resource type
+  props.set("action-prop", {
+    id: "action-prop",
+    instanceId: "form",
+    name: "action",
+    type: "resource" as const,
+    value: "resource-1",
+  });
+
+  const findings = runPrePublishAudit({
+    pages: createPages(marketEdgePage),
+    instances,
+    props,
+    dataSources: new Map(),
+    resources: new Map([
+      [
+        "resource-1",
+        {
+          id: "resource-1",
+          name: "Email Resource",
+          method: "post",
+          url: "https://example.com",
+          headers: [],
+        },
+      ],
+    ]),
+    assets: new Map(),
+    metas: componentMetas,
+    renderMode: "ssg",
+  });
+
+  const ssgWarnings = findings.filter(
+    (f) => f.ruleId === "ssg-incompatible-component"
+  );
+  expect(ssgWarnings).toHaveLength(0);
+});

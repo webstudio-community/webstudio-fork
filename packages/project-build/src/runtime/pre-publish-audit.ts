@@ -14,6 +14,9 @@ import {
   getBuildIntegrityIssues,
 } from "../build-integrity";
 import { isTreeSatisfyingContentModel } from "./content-model";
+import { getSsgIncompatibility } from "./ssg-compatibility";
+
+export type RenderMode = "ssg" | "ssr";
 
 export type PrePublishAuditFinding = {
   ruleId: string;
@@ -55,6 +58,7 @@ type PrePublishAuditContext = {
   resources: Resources;
   assets: Assets;
   metas: Map<string, WsComponentMeta>;
+  renderMode?: RenderMode;
 };
 
 type PrePublishAuditCheck = (
@@ -208,9 +212,81 @@ const checkDeprecatedWebhookForms: PrePublishAuditCheck = ({
   return findings;
 };
 
+const checkSSGIncompatibleComponents: PrePublishAuditCheck = ({
+  pages,
+  instances,
+  props,
+  resources,
+  renderMode,
+}) => {
+  if (renderMode !== "ssg") {
+    return [];
+  }
+
+  const findings: PrePublishAuditFinding[] = [];
+  for (const page of getPublishablePages(pages)) {
+    const visited = new Set<string>();
+    const visit = (instanceId: string, parentSelector: string[]) => {
+      if (visited.has(instanceId)) {
+        return;
+      }
+      visited.add(instanceId);
+      const instance = instances.get(instanceId);
+      if (instance === undefined) {
+        return;
+      }
+      const instanceSelector = [instanceId, ...parentSelector];
+
+      // Resolve actual component name: check ws:component prop for ws:element instances
+      let componentName = instance.component;
+      if (componentName === "ws:element") {
+        const wsComponentProp = Array.from(props.values()).find(
+          (prop) =>
+            prop.instanceId === instanceId &&
+            prop.name === "ws:component" &&
+            prop.type === "string"
+        );
+        if (wsComponentProp && wsComponentProp.type === "string") {
+          componentName = wsComponentProp.value;
+        }
+      }
+
+      const incompatibilityReason = getSsgIncompatibility({
+        instance: { component: componentName, id: instance.id },
+        props,
+        resources,
+      });
+
+      if (incompatibilityReason !== undefined) {
+        findings.push({
+          ruleId: "ssg-incompatible-component",
+          severity: "warning",
+          message: `${componentName} is not compatible with SSG mode. ${incompatibilityReason}`,
+          location: {
+            pageId: page.id,
+            pageName: page.name,
+            pagePath: getPagePath(page.id, pages) || "/",
+            instanceId,
+            instanceSelector,
+          },
+        });
+      }
+
+      for (const child of instance.children ?? []) {
+        if (child.type === "id") {
+          visit(child.value, instanceSelector);
+        }
+      }
+    };
+    visit(page.rootInstanceId, []);
+  }
+  return findings;
+};
+
 const prePublishAuditChecks: PrePublishAuditCheck[] = [
   checkHtmlContentModel,
   checkDeprecatedWebhookForms,
+  checkSSGIncompatibleComponents,
   checkJsonPropValues,
   checkBuildIntegrity,
 ];
@@ -219,9 +295,11 @@ const maxAuditFindings = 500;
 
 export const runPrePublishAudit = ({
   pages,
+  renderMode,
   ...context
 }: Omit<PrePublishAuditContext, "pages"> & {
   pages: Pages | undefined;
+  renderMode?: RenderMode;
 }): PrePublishAuditFinding[] => {
   if (pages === undefined) {
     return [
@@ -238,7 +316,7 @@ export const runPrePublishAudit = ({
   const findings: PrePublishAuditFinding[] = [];
   for (const check of prePublishAuditChecks) {
     try {
-      findings.push(...check({ ...context, pages }));
+      findings.push(...check({ ...context, pages, renderMode }));
     } catch {
       findings.push({
         ruleId: "validation-incomplete",

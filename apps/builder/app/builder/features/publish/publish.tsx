@@ -1014,7 +1014,7 @@ export const PublishButton = ({ projectId }: PublishProps) => {
     }
 
     try {
-      const checks = await runPublishValidation(projectId, domains);
+      const checks = await runPublishValidation(projectId, domains, renderMode);
       if (isManualValidationCurrent(session) === false) {
         return;
       }
@@ -1057,7 +1057,11 @@ export const PublishButton = ({ projectId }: PublishProps) => {
         const previousBuildId = $project.get()?.latestBuildVirtual?.buildId;
         const publishResult = await runPublishAfterBestEffortChecks({
           checks: async () => {
-            const checks = await runPublishDiagnostics(projectId, domains);
+            const checks = await runPublishDiagnostics(
+              projectId,
+              domains,
+              renderMode
+            );
             diagnostics.setFindings(checks.findings);
           },
           onCheckFailure: (error) => {
@@ -1171,7 +1175,11 @@ export const PublishButton = ({ projectId }: PublishProps) => {
       async () => {
         const publishResult = await runPublishAfterBestEffortChecks({
           checks: async () => {
-            const checks = await runPublishDiagnostics(projectId);
+            const checks = await runPublishDiagnostics(
+              projectId,
+              undefined,
+              renderMode
+            );
             diagnostics.setFindings(checks.findings);
           },
           onCheckFailure: (error) => {
