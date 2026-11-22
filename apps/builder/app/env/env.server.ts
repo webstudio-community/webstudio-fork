@@ -55,6 +55,14 @@ const environment = z.object({
   ENTRI_APPLICATION_ID: z.string().default("webstudio"),
   ENTRI_SECRET: z.string().optional(),
 
+  // Self-hosted backup retention (max published builds per project before cleanup)
+  // 0 = unlimited, default = 5
+  BACKUP_RETENTION: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 5))
+    .pipe(z.number().int().nonnegative()),
+
   PUBLISHER_HOST: z.string().default("wstd.work"),
 
   STAGING_USERNAME: z.string().default("admin"),
@@ -124,6 +132,7 @@ const rawEnv = {
   RESIZE_ORIGIN: process.env.RESIZE_ORIGIN,
   ENTRI_APPLICATION_ID: process.env.ENTRI_APPLICATION_ID,
   ENTRI_SECRET: process.env.ENTRI_SECRET,
+  BACKUP_RETENTION: process.env.BACKUP_RETENTION,
   PUBLISHER_HOST: process.env.PUBLISHER_HOST,
   STAGING_USERNAME: process.env.STAGING_USERNAME,
   STAGING_PASSWORD: process.env.STAGING_PASSWORD,
