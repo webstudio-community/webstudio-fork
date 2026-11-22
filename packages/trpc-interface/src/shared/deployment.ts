@@ -94,7 +94,9 @@ export const deploymentRouter = router({
 
         // Tolerate older publishers that don't return logHandle
         try {
-          const responseBody = (await response.json()) as { logHandle?: string };
+          const responseBody = (await response.json()) as {
+            logHandle?: string;
+          };
           return { success: true, logHandle: responseBody.logHandle };
         } catch {
           return { success: true };
