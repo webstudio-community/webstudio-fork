@@ -54,8 +54,26 @@ VALUES
   ('project1-pub-10', '2023-01-10 10:00:00+00', 'project1', '{"domains":["example.com"]}', 'PUBLISHED',
    '{"p":10}', '["bp"]', '["s"]', '["src"]', '["sel"]', '["p"]', '["d"]', '["r"]', '["i"]', '{"m":10}', '{"meta":{},"compiler":{}}');
 
+-- Setup for custom domain test: add Domain and ProjectDomain
+INSERT INTO "public"."Domain" ("id", "domain", "createdAt", "status", "updatedAt")
+VALUES ('custom-domain-1', 'custom.example.com', '2023-01-01 00:00:00+00', 'ACTIVE', '2023-01-01 00:00:00+00');
+
+INSERT INTO "public"."ProjectDomain" ("projectId", "domainId", "createdAt", "txtRecord", "cname")
+VALUES ('project1', 'custom-domain-1', '2023-01-01 00:00:00+00', 'txt-record-1', 'cname-1');
+
+-- Insert a build for the custom domain (very old, published only once)
+-- This build should NOT be cleaned even with keep=5, because it's the latestBuildVirtual for that domain
+INSERT INTO "public"."Build" (
+    "id", "createdAt", "projectId", "deployment", "publishStatus",
+    "pages", "breakpoints", "styles", "styleSources", "styleSourceSelections",
+    "props", "dataSources", "resources", "instances", "marketplaceProduct", "projectSettings"
+)
+VALUES
+  ('project1-custom-domain-1', '2022-12-15 10:00:00+00', 'project1', '{"domains":["custom.example.com"]}', 'PUBLISHED',
+   '{"p":"custom"}', '["bp"]', '["s"]', '["src"]', '["sel"]', '["p"]', '["d"]', '["r"]', '["i"]', '{"m":"custom"}', '{"meta":{},"compiler":{}}');
+
 -- =========================================
--- Test 1: Keep=5, oldest 5 builds are cleaned
+-- Test 1: Keep=5, oldest 5 builds cleaned, custom domain preserved
 -- =========================================
 
 SELECT cleanup_project_backups('project1', 5);
@@ -100,6 +118,20 @@ SELECT results_eq(
     ORDER BY id
   $$,
   'Test 1: The 5 newest builds should remain uncleaned'
+);
+
+-- Verify custom domain build is NOT cleaned (preserved by latestBuildVirtual)
+SELECT is(
+  (SELECT "isCleaned" FROM "Build" WHERE id = 'project1-custom-domain-1'),
+  false,
+  'Test 1: Custom domain build should NOT be cleaned (latestBuildVirtual preserved)'
+);
+
+-- Verify custom domain build content is intact
+SELECT is(
+  (SELECT "pages" FROM "Build" WHERE id = 'project1-custom-domain-1')::text,
+  '{"p":"custom"}',
+  'Test 1: Custom domain build pages should be intact'
 );
 
 -- =========================================
