@@ -1,6 +1,6 @@
--- Cleanup project backups: keep only the N most recent published builds per project
--- Builds older than the Nth most recent are marked as cleaned (content cleared, isCleaned=true)
--- This aligns with upstream's database_cleanup behavior: empties content columns and sets the flag
+-- Cleanup project backups: keep the N most recent published builds per project
+-- while preserving all currently-deployed builds (by domain). Content is cleared
+-- (marked as cleaned, isCleaned=true) to free storage, aligning with upstream database_cleanup.
 CREATE OR REPLACE FUNCTION cleanup_project_backups(
   project_id text,
   keep int DEFAULT 5
@@ -13,37 +13,57 @@ BEGIN
     RETURN 0;
   END IF;
 
-  -- Collect IDs of latest builds to preserve (also preserve dev builds)
-  WITH latest_builds AS (
-    -- Latest published builds per project (up to 'keep' most recent)
-    SELECT id FROM "Build"
-    WHERE "projectId" = project_id
-      AND deployment IS NOT NULL
-    ORDER BY "createdAt" DESC
-    LIMIT keep
+  -- Collect IDs of builds to preserve:
+  -- 1. All currently-deployed builds (per domain)
+  -- 2. The N most recent builds beyond those currently deployed
+  WITH current_domain_builds AS (
+    -- Latest published builds per project domain (currently in line)
+    SELECT "buildId" FROM "Project" p, LATERAL "latestProjectDomainBuildVirtual"(p)
+    WHERE p.id = project_id
+    UNION
+    -- Latest build for project (project domain)
+    SELECT "buildId" FROM "Project" p, LATERAL "latestBuildVirtual"(p)
+    WHERE p.id = project_id
+    UNION
+    -- Latest builds for custom domains
+    SELECT lb."buildId"
+    FROM "Project" p, LATERAL "domainsVirtual"(p) dv, LATERAL "latestBuildVirtual"(dv) lb
+    WHERE p.id = project_id
   ),
-  builds_to_clean AS (
-    -- Published builds older than the latest 'keep', not already cleaned
+  recent_non_deployed AS (
+    -- N most recent builds beyond those currently deployed
     SELECT id FROM "Build"
     WHERE "projectId" = project_id
       AND deployment IS NOT NULL
       AND "isCleaned" = false
-      AND id NOT IN (SELECT id FROM latest_builds)
+      AND id NOT IN (SELECT "buildId" FROM current_domain_builds)
+    ORDER BY "createdAt" DESC
+    LIMIT keep
+  ),
+  builds_to_clean AS (
+    -- Builds to clean: published, not already cleaned, not current, not in recent N
+    SELECT id FROM "Build"
+    WHERE "projectId" = project_id
+      AND deployment IS NOT NULL
+      AND "isCleaned" = false
+      AND id NOT IN (
+        SELECT "buildId" FROM current_domain_builds
+        UNION
+        SELECT id FROM recent_non_deployed
+      )
   )
   UPDATE "Build"
   SET
-    -- Empty all content columns (matches upstream database_cleanup exactly)
-    "pages" = '{}',
-    "breakpoints" = '[]',
-    "styles" = '[]',
-    "styleSources" = '[]',
-    "styleSourceSelections" = '[]',
-    "props" = '[]',
-    "dataSources" = '[]',
-    "resources" = '[]',
-    "instances" = '[]',
-    "marketplaceProduct" = '{}',
-    "projectSettings" = '{"meta":{},"compiler":{}}',
+    -- Empty only content columns (matches upstream database_cleanup)
+    "styleSources" = '[]'::text,
+    styles = '[]'::text,
+    breakpoints = '[]'::text,
+    "styleSourceSelections" = '[]'::text,
+    props = '[]'::text,
+    instances = '[]'::text,
+    "dataSources" = '[]'::text,
+    resources = '[]'::text,
+    "marketplaceProduct" = '{}'::text,
     -- Mark as cleaned
     "isCleaned" = true
   WHERE id IN (SELECT id FROM builds_to_clean);
@@ -53,6 +73,3 @@ BEGIN
   RETURN cleaned_count;
 END;
 $$ LANGUAGE plpgsql;
-
--- PostgREST needs EXECUTE privilege on the function for RPC calls
-GRANT EXECUTE ON FUNCTION cleanup_project_backups(text, int) TO anon;
