@@ -201,7 +201,11 @@ describe("deployment log retrieval", () => {
 
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ availability: "available", outcome: "succeeded" }),
+      json: async () => ({
+        availability: "available",
+        outcome: "succeeded",
+        logAvailability: "available",
+      }),
     });
     vi.stubGlobal("fetch", mockFetch);
 
@@ -292,7 +296,10 @@ describe("deployment log retrieval", () => {
       logHandle: "test-build-id",
     });
 
-    // Should return at least availability, not break on invalid enum
-    expect(result.availability).toBe("available");
+    assert(result.availability === "available");
+    expect(result.outcome).toBe("failed");
+    expect(result.logAvailability).toBe("available");
+    expect(result.startedAt).toBe("2026-01-01T12:00:00Z");
+    expect(result.failedStage).toBeUndefined();
   });
 });

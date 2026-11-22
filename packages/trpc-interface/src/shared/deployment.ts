@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import { router, procedure } from "./trpc";
 import {
   publishInput,
@@ -31,6 +32,38 @@ const noCapabilities: PublisherCapabilities = {
   coolify: false,
   ssh: false,
   targets: [],
+};
+
+/**
+ * Validate the publisher's /logs response against the builder contract.
+ * A publisher that sends a value the contract does not know (e.g. an older
+ * publisher's failedStage) should not hide the whole log: drop the invalid
+ * top-level fields and validate again before giving up.
+ */
+export const parsePublishLog = (
+  data: unknown
+): z.infer<typeof publishLogOutput> => {
+  const result = publishLogOutput.safeParse(data);
+  if (result.success) {
+    return result.data;
+  }
+  console.warn(
+    `Invalid publish log from publisher: ${result.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; ")}`
+  );
+  if (typeof data !== "object" || data === null) {
+    return { availability: "unavailable" };
+  }
+  const invalidKeys = new Set(
+    result.error.issues.map((issue) => String(issue.path[0]))
+  );
+  const retry = publishLogOutput.safeParse(
+    Object.fromEntries(
+      Object.entries(data).filter(([key]) => invalidKeys.has(key) === false)
+    )
+  );
+  return retry.success ? retry.data : { availability: "unavailable" };
 };
 
 export const deploymentRouter = router({
@@ -201,31 +234,7 @@ export const deploymentRouter = router({
           }
 
           const data = (await response.json()) as unknown;
-          const result = publishLogOutput.safeParse(data);
-          if (!result.success) {
-            // Log the validation error but try to return what's valid
-            const errors = result.error.issues
-              .map((e) => `${e.path.join(".")}: ${e.message}`)
-              .join("; ");
-            console.warn(
-              `[builder] Publish log validation error from publisher: ${errors}`
-            );
-            // Return at minimum availability/outcome/log if they're present
-            if (
-              typeof data === "object" &&
-              data !== null &&
-              (data as Record<string, unknown>).availability
-            ) {
-              return {
-                availability: (data as Record<string, unknown>).availability as
-                  | "pending"
-                  | "available"
-                  | "unavailable",
-              };
-            }
-            return { availability: "unavailable" as const };
-          }
-          return result.data;
+          return parsePublishLog(data);
         } finally {
           clearTimeout(timeoutHandle);
         }
