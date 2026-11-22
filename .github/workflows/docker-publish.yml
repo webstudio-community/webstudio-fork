@@ -135,6 +135,9 @@ jobs:
       contents: read
       packages: write   # required for ghcr.io push
 
+    outputs:
+      branch-tag: ${{ steps.branch.outputs.tag }}
+
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -276,3 +279,72 @@ jobs:
             echo ""
             echo "**Digest**: \`$digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # For PRs, comment with the builder image tag and digest so the branch can be
+  # tested on the Coolify test stack. Upsert into an existing comment so each
+  # synchronize event updates the same comment instead of spamming (marker:
+  # <!-- test-images -->). Skip for PRs from external forks (readonly token).
+  comment-pr:
+    name: Comment PR with builder image
+    runs-on: ubuntu-24.04
+    needs: merge
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Extract image info
+        id: image
+        env:
+          REGISTRY_IMAGE: ${{ env.REGISTRY_IMAGE }}
+          BRANCH_TAG: ${{ needs.merge.outputs.branch-tag }}
+        run: |
+          set -euo pipefail
+          TAG="${REGISTRY_IMAGE}:${BRANCH_TAG}"
+          DIGEST=$(docker buildx imagetools inspect "$TAG" --format '{{ .Manifest.Digest }}' 2>/dev/null || echo "unknown")
+          SHORT_SHA="${{ github.event.pull_request.head.sha }}" && SHORT_SHA="${SHORT_SHA:0:7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Upsert PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TAG: ${{ steps.image.outputs.tag }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          SHORT_SHA: ${{ steps.image.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          BODY="$RUNNER_TEMP/builder-image-comment.md"
+          {
+            echo "<!-- test-images -->"
+            echo "### 🐳 Test image: builder"
+            echo ""
+            echo "**Tag**: \`$TAG\`"
+            echo ""
+            echo "**Digest**: \`$DIGEST\`"
+            echo ""
+            echo "**Platforms**: linux/amd64, linux/arm64"
+            echo ""
+            echo "📋 For Coolify test bench:"
+            echo ""
+            echo "\`\`\`bash"
+            echo "export BUILDER_IMAGE=$TAG"
+            echo "\`\`\`"
+            echo ""
+            echo "[View package](https://github.com/${{ github.repository }}/pkgs/container/builder) · Updated for \`$SHORT_SHA\` · $(date -u '+%Y-%m-%d %H:%M UTC')"
+          } > "$BODY"
+
+          CID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq 'map(select(.user.type == "Bot" and (.body | contains("<!-- test-images -->")))) | first | .id // empty')
+
+          if [ -n "$CID" ]; then
+            jq -Rs '{body: .}' "$BODY" | gh api -X PATCH "repos/$REPO/issues/comments/$CID" --input - >/dev/null
+            echo "Updated comment $CID on PR #$PR"
+          else
+            jq -Rs '{body: .}' "$BODY" | gh api -X POST "repos/$REPO/issues/$PR/comments" --input - >/dev/null
+            echo "Created comment on PR #$PR"
+          fi
