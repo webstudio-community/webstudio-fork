@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import { router, procedure } from "./trpc";
 import {
   publishInput,
@@ -31,6 +32,38 @@ const noCapabilities: PublisherCapabilities = {
   coolify: false,
   ssh: false,
   targets: [],
+};
+
+/**
+ * Validate the publisher's /logs response against the builder contract.
+ * A publisher that sends a value the contract does not know (e.g. an older
+ * publisher's failedStage) should not hide the whole log: drop the invalid
+ * top-level fields and validate again before giving up.
+ */
+export const parsePublishLog = (
+  data: unknown
+): z.infer<typeof publishLogOutput> => {
+  const result = publishLogOutput.safeParse(data);
+  if (result.success) {
+    return result.data;
+  }
+  console.warn(
+    `Invalid publish log from publisher: ${result.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; ")}`
+  );
+  if (typeof data !== "object" || data === null) {
+    return { availability: "unavailable" };
+  }
+  const invalidKeys = new Set(
+    result.error.issues.map((issue) => String(issue.path[0]))
+  );
+  const retry = publishLogOutput.safeParse(
+    Object.fromEntries(
+      Object.entries(data).filter(([key]) => invalidKeys.has(key) === false)
+    )
+  );
+  return retry.success ? retry.data : { availability: "unavailable" };
 };
 
 export const deploymentRouter = router({
@@ -92,7 +125,24 @@ export const deploymentRouter = router({
           };
         }
 
-        return { success: true };
+        // Tolerate older publishers that don't return logHandle
+        try {
+          const responseBody = (await response.json()) as unknown;
+          if (
+            typeof responseBody === "object" &&
+            responseBody !== null &&
+            "logHandle" in responseBody
+          ) {
+            const logHandle = (responseBody as Record<string, unknown>)
+              .logHandle;
+            if (typeof logHandle === "string") {
+              return { success: true, logHandle };
+            }
+          }
+          return { success: true };
+        } catch {
+          return { success: true };
+        }
       } catch (error) {
         return {
           success: false,
@@ -128,6 +178,17 @@ export const deploymentRouter = router({
           };
         }
 
+        const responseBody = (await response.json()) as unknown;
+        if (
+          typeof responseBody === "object" &&
+          responseBody !== null &&
+          "logHandle" in responseBody
+        ) {
+          const logHandle = (responseBody as Record<string, unknown>).logHandle;
+          if (typeof logHandle === "string") {
+            return { success: true, logHandle };
+          }
+        }
         return { success: true };
       } catch (error) {
         return {
@@ -139,5 +200,46 @@ export const deploymentRouter = router({
   getPublishLog: procedure
     .input(publishLogInput)
     .output(publishLogOutput)
-    .query(() => ({ availability: "unavailable" as const })),
+    .query(async ({ input }) => {
+      const publisherUrl = process.env.SELF_HOSTED_PUBLISHER_URL;
+
+      if (publisherUrl === undefined) {
+        return { availability: "unavailable" as const };
+      }
+
+      try {
+        const url = new URL(
+          `${publisherUrl}/logs/${encodeURIComponent(input.buildId)}`
+        );
+        if (input.cursor !== undefined) {
+          url.searchParams.set("cursor", String(input.cursor));
+        }
+        if (input.includeLog === true) {
+          url.searchParams.set("includeLog", "true");
+        }
+
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        try {
+          const response = await fetch(url.toString(), {
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${process.env.TRPC_SERVER_API_TOKEN ?? ""}`,
+            },
+          });
+
+          if (!response.ok) {
+            return { availability: "unavailable" as const };
+          }
+
+          const data = (await response.json()) as unknown;
+          return parsePublishLog(data);
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
+      } catch {
+        return { availability: "unavailable" as const };
+      }
+    }),
 });
