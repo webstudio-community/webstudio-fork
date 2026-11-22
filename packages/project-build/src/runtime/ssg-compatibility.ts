@@ -4,7 +4,7 @@
  * Each entry documents why a component may require SSR mode.
  */
 
-import type { Instances, Props, Resources } from "@webstudio-is/sdk";
+import type { Props, Resources } from "@webstudio-is/sdk";
 
 export type SsgCompatibility = {
   /**
@@ -81,11 +81,12 @@ export const ssgCompatibilityRegistry: Record<string, SsgCompatibility> = {
         return true;
       }
       // Check if the action is a valid FormSubmission (array of FormAction)
-      const isValidFormSubmission =
-        Array.isArray(actionProp.value) &&
-        actionProp.value.every(
-          (a) => typeof a === "object" && a !== null && "dataSourceId" in a
-        );
+      if (!Array.isArray(actionProp.value)) {
+        return true;
+      }
+      const isValidFormSubmission = actionProp.value.every(
+        (a) => typeof a === "object" && a !== null && "dataSourceId" in a
+      );
       // If action is a valid non-empty FormSubmission, it requires a server handler
       if (isValidFormSubmission && actionProp.value.length > 0) {
         return false;

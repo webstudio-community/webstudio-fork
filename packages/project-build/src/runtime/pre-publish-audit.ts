@@ -14,10 +14,7 @@ import {
   getBuildIntegrityIssues,
 } from "../build-integrity";
 import { isTreeSatisfyingContentModel } from "./content-model";
-import {
-  getSsgIncompatibility,
-  type SsgCompatibilityContext,
-} from "./ssg-compatibility";
+import { getSsgIncompatibility } from "./ssg-compatibility";
 
 export type RenderMode = "ssg" | "ssr";
 
