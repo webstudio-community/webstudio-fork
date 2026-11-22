@@ -25,6 +25,16 @@ const conditions = hasPrivateFolders
   ? ["webstudio-private", "webstudio"]
   : ["webstudio"];
 
+// Without the private submodule, sdk-components-animation resolves to stubs
+// that never animate. Point the canvas at the upstream npm build, which
+// published sites already use.
+const upstreamAnimationRuntime = path.join(
+  __dirname,
+  "node_modules/@webstudio-is/sdk-components-animation-upstream/lib/components.js"
+);
+const useUpstreamAnimationRuntime =
+  hasPrivateFolders === false && existsSync(upstreamAnimationRuntime);
+
 export default defineConfig(({ mode }) => {
   if (mode === "development") {
     // Enable self-signed certificates for development service 2 service fetch calls.
@@ -115,7 +125,26 @@ export default defineConfig(({ mode }) => {
           find: /^tslib$/,
           replacement: "tslib/tslib.es6.mjs",
         },
+
+        // Only the root entry has a private implementation.
+        ...(useUpstreamAnimationRuntime
+          ? [
+              {
+                find: /^@webstudio-is\/sdk-components-animation$/,
+                replacement: upstreamAnimationRuntime,
+              },
+            ]
+          : []),
       ],
+      // Share ReactSdkContext and the runtime with the canvas.
+      dedupe: useUpstreamAnimationRuntime
+        ? [
+            "@webstudio-is/sdk",
+            "@webstudio-is/react-sdk",
+            "@webstudio-is/css-engine",
+            "@webstudio-is/sdk-components-react",
+          ]
+        : [],
     },
     ssr: {
       resolve: {
