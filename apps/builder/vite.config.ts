@@ -25,6 +25,18 @@ const conditions = hasPrivateFolders
   ? ["webstudio-private", "webstudio"]
   : ["webstudio"];
 
+// Without the private submodule, @webstudio-is/sdk-components-animation
+// resolves to public stubs that render children but never animate, so the
+// canvas cannot preview animations (webstudio-self-host#29). Published sites
+// install the upstream npm build, which has the real runtime. Point the canvas
+// at that same unmodified build, installed under an npm alias.
+const upstreamAnimationRuntime = path.join(
+  __dirname,
+  "node_modules/@webstudio-is/sdk-components-animation-upstream/lib/components.js"
+);
+const useUpstreamAnimationRuntime =
+  hasPrivateFolders === false && existsSync(upstreamAnimationRuntime);
+
 export default defineConfig(({ mode }) => {
   if (mode === "development") {
     // Enable self-signed certificates for development service 2 service fetch calls.
@@ -116,7 +128,29 @@ export default defineConfig(({ mode }) => {
           find: /^tslib$/,
           replacement: "tslib/tslib.es6.mjs",
         },
+
+        // Only the root entry has a private implementation; ./metas,
+        // ./templates and ./components keep resolving to the workspace.
+        ...(useUpstreamAnimationRuntime
+          ? [
+              {
+                find: /^@webstudio-is\/sdk-components-animation$/,
+                replacement: upstreamAnimationRuntime,
+              },
+            ]
+          : []),
       ],
+      // The upstream build imports these from its own nested npm copies.
+      // Resolve them from the builder instead so it shares ReactSdkContext
+      // and the rest of the runtime with the canvas.
+      dedupe: useUpstreamAnimationRuntime
+        ? [
+            "@webstudio-is/sdk",
+            "@webstudio-is/react-sdk",
+            "@webstudio-is/css-engine",
+            "@webstudio-is/sdk-components-react",
+          ]
+        : [],
     },
     ssr: {
       resolve: {
