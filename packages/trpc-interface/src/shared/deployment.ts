@@ -201,7 +201,31 @@ export const deploymentRouter = router({
           }
 
           const data = (await response.json()) as unknown;
-          return publishLogOutput.parse(data);
+          const result = publishLogOutput.safeParse(data);
+          if (!result.success) {
+            // Log the validation error but try to return what's valid
+            const errors = result.error.issues
+              .map((e) => `${e.path.join(".")}: ${e.message}`)
+              .join("; ");
+            console.warn(
+              `[builder] Publish log validation error from publisher: ${errors}`
+            );
+            // Return at minimum availability/outcome/log if they're present
+            if (
+              typeof data === "object" &&
+              data !== null &&
+              (data as Record<string, unknown>).availability
+            ) {
+              return {
+                availability: (data as Record<string, unknown>).availability as
+                  | "pending"
+                  | "available"
+                  | "unavailable",
+              };
+            }
+            return { availability: "unavailable" as const };
+          }
+          return result.data;
         } finally {
           clearTimeout(timeoutHandle);
         }

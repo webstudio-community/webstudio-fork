@@ -266,4 +266,33 @@ describe("deployment log retrieval", () => {
 
     expect(result).toEqual({ success: true });
   });
+
+  test("getPublishLog returns available even if failedStage is invalid", async () => {
+    process.env.SELF_HOSTED_PUBLISHER_URL = "http://publisher:4000";
+    process.env.TRPC_SERVER_API_TOKEN = "test-token";
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        availability: "available",
+        outcome: "failed",
+        logAvailability: "available",
+        startedAt: "2026-01-01T12:00:00Z",
+        completedAt: "2026-01-01T12:05:00Z",
+        failedStage: "unknown", // Invalid enum value from publisher
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { deploymentRouter } = await import("./deployment");
+    const caller = deploymentRouter.createCaller({} as unknown);
+
+    const result = await caller.getPublishLog({
+      buildId: "test-build-id",
+      logHandle: "test-build-id",
+    });
+
+    // Should return at least availability, not break on invalid enum
+    expect(result.availability).toBe("available");
+  });
 });
