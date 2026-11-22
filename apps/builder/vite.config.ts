@@ -30,15 +30,12 @@ const conditions = hasPrivateFolders
 // canvas cannot preview animations (webstudio-self-host#29). Published sites
 // install the upstream npm build, which has the real runtime. Point the canvas
 // at that same unmodified build, installed under an npm alias.
-// Set WS_DISABLE_UPSTREAM_ANIMATION=true to fall back to the stubs.
 const upstreamAnimationRuntime = path.join(
   __dirname,
   "node_modules/@webstudio-is/sdk-components-animation-upstream/lib/components.js"
 );
 const useUpstreamAnimationRuntime =
-  hasPrivateFolders === false &&
-  process.env.WS_DISABLE_UPSTREAM_ANIMATION !== "true" &&
-  existsSync(upstreamAnimationRuntime);
+  hasPrivateFolders === false && existsSync(upstreamAnimationRuntime);
 
 export default defineConfig(({ mode }) => {
   if (mode === "development") {
