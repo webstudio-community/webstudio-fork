@@ -94,10 +94,19 @@ export const deploymentRouter = router({
 
         // Tolerate older publishers that don't return logHandle
         try {
-          const responseBody = (await response.json()) as {
-            logHandle?: string;
-          };
-          return { success: true, logHandle: responseBody.logHandle };
+          const responseBody = (await response.json()) as unknown;
+          if (
+            typeof responseBody === "object" &&
+            responseBody !== null &&
+            "logHandle" in responseBody
+          ) {
+            const logHandle = (responseBody as Record<string, unknown>)
+              .logHandle;
+            if (typeof logHandle === "string") {
+              return { success: true, logHandle };
+            }
+          }
+          return { success: true };
         } catch {
           return { success: true };
         }
@@ -136,8 +145,18 @@ export const deploymentRouter = router({
           };
         }
 
-        const responseBody = await response.json();
-        return { success: true, logHandle: responseBody.logHandle };
+        const responseBody = (await response.json()) as unknown;
+        if (
+          typeof responseBody === "object" &&
+          responseBody !== null &&
+          "logHandle" in responseBody
+        ) {
+          const logHandle = (responseBody as Record<string, unknown>).logHandle;
+          if (typeof logHandle === "string") {
+            return { success: true, logHandle };
+          }
+        }
+        return { success: true };
       } catch (error) {
         return {
           success: false,
@@ -181,7 +200,7 @@ export const deploymentRouter = router({
             return { availability: "unavailable" as const };
           }
 
-          const data = await response.json();
+          const data = (await response.json()) as unknown;
           return publishLogOutput.parse(data);
         } finally {
           clearTimeout(timeoutHandle);

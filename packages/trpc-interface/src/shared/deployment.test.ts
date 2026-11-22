@@ -14,7 +14,7 @@ describe("deployment log retrieval", () => {
   test("getPublishLog returns unavailable when SELF_HOSTED_PUBLISHER_URL is not set", async () => {
     delete process.env.SELF_HOSTED_PUBLISHER_URL;
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -35,7 +35,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -76,7 +76,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -107,7 +107,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -130,7 +130,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -148,7 +148,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.getPublishLog({
       buildId: "test-build-id",
@@ -179,7 +179,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     await caller.getPublishLog({
       buildId: "test-build-id",
@@ -204,7 +204,7 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     // includeLog not set — should not add parameter
     await caller.getPublishLog({
@@ -227,12 +227,14 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.publish({
       buildId: "test-id",
       builderOrigin: "http://builder",
       destination: "static",
+      branchName: "main",
+      logProjectName: "test-project",
     });
 
     expect(result).toEqual({ success: true });
@@ -250,12 +252,14 @@ describe("deployment log retrieval", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const { deploymentRouter } = await import("./deployment");
-    const caller = deploymentRouter.createCaller({} as any);
+    const caller = deploymentRouter.createCaller({} as unknown);
 
     const result = await caller.publish({
       buildId: "test-id",
       builderOrigin: "http://builder",
       destination: "static",
+      branchName: "main",
+      logProjectName: "test-project",
     });
 
     expect(result).toEqual({ success: true });
