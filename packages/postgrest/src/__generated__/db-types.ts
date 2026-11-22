@@ -1116,6 +1116,10 @@ export type Database = {
         Args: { deployment: string; project_id: string };
         Returns: string;
       };
+      cleanup_project_backups: {
+        Args: { keep?: number; project_id: string };
+        Returns: number;
+      };
       database_cleanup: {
         Args: { from_date?: string; to_date?: string };
         Returns: undefined;
