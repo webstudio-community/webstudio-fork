@@ -128,7 +128,8 @@ export const deploymentRouter = router({
           };
         }
 
-        return { success: true };
+        const responseBody = await response.json();
+        return { success: true, logHandle: responseBody.logHandle };
       } catch (error) {
         return {
           success: false,
@@ -139,5 +140,34 @@ export const deploymentRouter = router({
   getPublishLog: procedure
     .input(publishLogInput)
     .output(publishLogOutput)
-    .query(() => ({ availability: "unavailable" as const })),
+    .query(async ({ input }) => {
+      const publisherUrl = process.env.SELF_HOSTED_PUBLISHER_URL;
+
+      if (publisherUrl === undefined) {
+        return { availability: "unavailable" as const };
+      }
+
+      try {
+        const url = new URL(`${publisherUrl}/logs/${encodeURIComponent(input.buildId)}`);
+        if (input.cursor !== undefined) {
+          url.searchParams.set("cursor", String(input.cursor));
+        }
+        url.searchParams.set("includeLog", "true");
+
+        const response = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${process.env.TRPC_SERVER_API_TOKEN ?? ""}`,
+          },
+        });
+
+        if (!response.ok) {
+          return { availability: "unavailable" as const };
+        }
+
+        const data = await response.json();
+        return publishLogOutput.parse(data);
+      } catch {
+        return { availability: "unavailable" as const };
+      }
+    }),
 });
