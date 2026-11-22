@@ -92,7 +92,9 @@ const PrePublishInstanceLink = ({
   );
 };
 
-const getPrePublishAuditFindings = (renderMode?: string): DiagnosticFinding[] => {
+const getPrePublishAuditFindings = (
+  renderMode?: string
+): DiagnosticFinding[] => {
   const findings = runPrePublishAudit({
     pages: $pages.get(),
     instances: $instances.get(),
@@ -101,7 +103,8 @@ const getPrePublishAuditFindings = (renderMode?: string): DiagnosticFinding[] =>
     resources: $resources.get(),
     assets: $assets.get(),
     metas: $registeredComponentMetas.get(),
-    renderMode: renderMode === "ssg" || renderMode === "ssr" ? renderMode : undefined,
+    renderMode:
+      renderMode === "ssg" || renderMode === "ssr" ? renderMode : undefined,
   });
   return findings.flatMap((finding) => {
     if (finding.severity !== "error" && finding.severity !== "warning") {

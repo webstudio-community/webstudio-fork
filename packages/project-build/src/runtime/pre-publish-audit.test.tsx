@@ -588,7 +588,9 @@ test("ResourceForm with managed form submission is incompatible with SSG mode", 
   expect(findings).toContainEqual({
     ruleId: "ssg-incompatible-component",
     severity: "warning",
-    message: expect.stringContaining("ResourceForm is not compatible with SSG mode"),
+    message: expect.stringContaining(
+      "ResourceForm is not compatible with SSG mode"
+    ),
     location: {
       pageId: "marketedge",
       pageName: "MarketEdge",
