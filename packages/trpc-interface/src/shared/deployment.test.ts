@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, vi, afterEach } from "vitest";
-import { publishLogOutput } from "./deployment-contract";
+import { strict as assert } from "node:assert";
 
 describe("deployment log retrieval", () => {
   beforeEach(() => {
@@ -84,6 +84,7 @@ describe("deployment log retrieval", () => {
     });
 
     expect(result.availability).toBe("available");
+    assert(result.availability === "available");
     expect(result.outcome).toBe("succeeded");
     expect(result.log?.chunk).toBe(logContent);
     expect(result.log?.complete).toBe(true);
@@ -115,6 +116,7 @@ describe("deployment log retrieval", () => {
     });
 
     expect(result.availability).toBe("available");
+    assert(result.availability === "available");
     expect(result.outcome).toBe("failed");
     expect(result.failedStage).toBe("deploy");
   });
