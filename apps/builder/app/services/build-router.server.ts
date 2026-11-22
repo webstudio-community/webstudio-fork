@@ -319,6 +319,41 @@ export const buildRouter = router({
       if (result.error) {
         throw new Error(result.error.message);
       }
+
+      if (input.publishStatus === "PUBLISHED" && env.BACKUP_RETENTION > 0) {
+        try {
+          const buildResult = await ctx.postgrest.client
+            .from("Build")
+            .select("projectId")
+            .eq("id", input.buildId)
+            .single();
+
+          if (buildResult.error) {
+            console.warn(
+              `Failed to fetch projectId for build ${input.buildId}: ${buildResult.error.message}`
+            );
+          } else if (buildResult.data) {
+            const cleanupResult = await ctx.postgrest.client.rpc(
+              "cleanup_project_backups",
+              {
+                project_id: buildResult.data.projectId,
+                keep: env.BACKUP_RETENTION,
+              }
+            );
+
+            if (cleanupResult.error) {
+              console.warn(
+                `Backup cleanup failed for project ${buildResult.data.projectId}: ${cleanupResult.error.message}`
+              );
+            }
+          }
+        } catch (err) {
+          console.warn(
+            `Unexpected error during backup cleanup: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+
       return { success: true };
     }),
 
