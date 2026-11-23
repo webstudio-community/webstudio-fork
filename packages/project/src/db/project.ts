@@ -226,8 +226,9 @@ export const markAsDeleted = async (
 };
 
 /**
-  * Must run before the subdomain is freed: the publisher keys its routing on the
-  * original hostname. NOT_IMPLEMENTED means no self-hosted publisher.
+ * Must run before the subdomain is freed: the publisher keys its routing on the
+ * original hostname. NOT_IMPLEMENTED means no self-hosted publisher.
+ */
 const unpublishProjectHostnames = async (
   projectId: string,
   context: AppContext
@@ -263,6 +264,7 @@ const unpublishProjectHostnames = async (
   }
 };
 
+/**
  * Takes the published sites offline, then frees the subdomain. Call once per
  * project, never in a bulk update, so every row gets a unique domain.
  */
