@@ -446,8 +446,7 @@ const useAdvancedPublishOpen = (hasNonDefaultTarget: boolean) => {
   const handleOpenChange = (open: boolean) => {
     try {
       localStorage.setItem(advancedPublishOpenStorageKey, String(open));
-    } catch {
-    }
+    } catch {}
     setIsOpen(open);
   };
   return [isOpen, handleOpenChange] as const;

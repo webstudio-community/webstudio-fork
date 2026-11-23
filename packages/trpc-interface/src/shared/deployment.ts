@@ -72,8 +72,7 @@ export const deploymentRouter = router({
           targets: data.targets ?? [],
         };
       }
-    } catch {
-    }
+    } catch {}
     return noCapabilities;
   }),
 

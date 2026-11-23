@@ -1,5 +1,5 @@
 /**
-  * Self-hosting domain router: verifies TXT ownership records with real DNS lookups.
+ * Self-hosting domain router: verifies TXT ownership records with real DNS lookups.
  */
 import { resolveTxt } from "node:dns/promises";
 import { z } from "zod";
@@ -25,7 +25,7 @@ globalThis.verifiedDomains =
 
 export const domainRouter = router({
   /**
-      * Expects a TXT record at _webstudio-challenge.<domain>.
+   * Expects a TXT record at _webstudio-challenge.<domain>.
    */
   create: procedure
     .input(createInput)
@@ -66,7 +66,7 @@ export const domainRouter = router({
     }),
 
   /**
-      * Re-checks DNS for domains not in the verified set (e.g. after a restart).
+   * Re-checks DNS for domains not in the verified set (e.g. after a restart).
    */
   getStatus: procedure
     .input(input)

@@ -71,7 +71,6 @@ export const ssgCompatibilityRegistry: Record<string, SsgCompatibility> = {
     compatible: true,
     reason: "Animations load client-side; JSON delivered as static asset.",
   },
-
 };
 
 // Returns the reason when the component is incompatible.

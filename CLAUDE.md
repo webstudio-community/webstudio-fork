@@ -86,7 +86,7 @@ Enforced by oxlint: kebab-case files, named React imports, arrow functions,
 Match upstream Webstudio: comments are rare (<1 % of lines).
 
 - No comment by default; a clear name beats a comment. Comment only a
-  non-obvious *why*: external constraint, workaround, trap, required order.
+  non-obvious _why_: external constraint, workaround, trap, required order.
   - ✅ `// Navigation can discard Chrome's body before the next DOM poll.`
   - ❌ `// Check if any custom domains are selected` (restates the code)
 - One line, plain English, present tense; three lines at most.

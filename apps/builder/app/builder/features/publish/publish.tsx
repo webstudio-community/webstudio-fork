@@ -91,8 +91,7 @@ const writeStored = (key: string, value: string) => {
     } else {
       localStorage.setItem(key, value);
     }
-  } catch {
-  }
+  } catch {}
 };
 
 // Seeds from the pre-split `buildMode:<id>` key.
